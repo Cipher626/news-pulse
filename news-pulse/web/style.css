@@ -94,11 +94,12 @@ main,
 
 .updated {
   margin: 0 0 0 auto;
+  white-space: nowrap;
   color: var(--muted);
   font-size: 0.875rem;
 }
 
-.refresh {
+.icon-button {
   appearance: none;
   display: grid;
   place-items: center;
@@ -110,7 +111,8 @@ main,
   color: var(--ink);
   cursor: pointer;
 }
-.refresh svg { width: 1.125rem; height: 1.125rem; }
+.icon-button svg { width: 1.125rem; height: 1.125rem; }
+.updated + .icon-button { margin-left: 0.25rem; }
 .refresh.is-loading svg { animation: spin 0.9s linear infinite; }
 
 @keyframes spin { to { transform: rotate(360deg); } }
@@ -211,6 +213,7 @@ a.headline:hover { text-decoration: underline; text-underline-offset: 0.15em; }
   font-size: 0.8125rem;
 }
 .meta .outlet { color: var(--ink); font-weight: 700; }
+.meta .topics { color: var(--muted); }
 
 .tags {
   display: flex;
@@ -228,6 +231,7 @@ a.headline:hover { text-decoration: underline; text-underline-offset: 0.15em; }
 }
 .tag-sensitive { background: color-mix(in srgb, var(--heat-2) 18%, transparent); }
 .tag-warn { background: transparent; outline: 1px dashed var(--muted); outline-offset: -1px; }
+.tag-watch { background: color-mix(in srgb, var(--heat-1) 22%, transparent); }
 
 .more { margin-top: 0.5rem; font-size: 0.875rem; }
 .more summary {
@@ -264,6 +268,76 @@ a.headline:hover { text-decoration: underline; text-underline-offset: 0.15em; }
   margin: 2.5rem 0;
   color: var(--muted);
   text-align: center;
+}
+
+.link-button {
+  appearance: none;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 0.15em;
+  cursor: pointer;
+}
+
+/* Topic picker: a bottom sheet on phones, a centred panel on wider screens */
+.sheet {
+  width: min(100%, 30rem);
+  max-width: 100%;
+  max-height: 85vh;
+  margin: auto auto 0;
+  padding: 0;
+  border: 0;
+  border-radius: 1rem 1rem 0 0;
+  background: var(--surface);
+  color: var(--ink);
+}
+.sheet::backdrop { background: rgb(10 14 22 / 0.45); }
+.sheet-inner {
+  padding: 1.25rem max(1.25rem, env(safe-area-inset-right, 0px)) calc(1.25rem + env(safe-area-inset-bottom, 0px)) max(1.25rem, env(safe-area-inset-left, 0px));
+}
+.sheet h2 { margin: 0; font-size: 1.25rem; }
+.sheet h3 { margin: 1.25rem 0 0.25rem; font-size: 1rem; }
+.sheet-note { margin: 0.35rem 0 0.75rem; color: var(--muted); font-size: 0.875rem; }
+.choices { margin: 0; padding: 0; border: 0; }
+.choice {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.7rem 0;
+  border-bottom: 1px solid var(--line);
+  cursor: pointer;
+}
+.choice input { width: 1.2rem; height: 1.2rem; margin: 0; accent-color: var(--heat-1); }
+.choice-count { color: var(--muted); font-size: 0.875rem; font-variant-numeric: tabular-nums; }
+.done {
+  position: sticky;
+  bottom: 0;
+  appearance: none;
+  width: 100%;
+  margin-top: 1rem;
+  padding: 0.85rem;
+  border: 0;
+  border-radius: 0.6rem;
+  background: var(--ink);
+  color: var(--bg);
+  font: 700 1rem/1 var(--font);
+  cursor: pointer;
+}
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+@media (min-width: 40rem) {
+  .sheet { margin: auto; border-radius: 1rem; }
 }
 
 /* Footer */

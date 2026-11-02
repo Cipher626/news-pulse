@@ -2,19 +2,11 @@
 from __future__ import annotations
 
 import datetime as dt
-import re
 from collections import Counter
 
 from .cluster import ClusterSettings, Story, jaccard
+from .textmatch import matches, phrase_regex
 from .util import outlet_key
-
-
-def phrase_regex(words: list[str]) -> re.Pattern | None:
-    words = [w.strip().lower() for w in words if w.strip()]
-    if not words:
-        return None
-    alternatives = "|".join(re.escape(w) for w in sorted(words, key=len, reverse=True))
-    return re.compile(rf"(?<![a-z0-9])(?:{alternatives})(?![a-z0-9])", re.IGNORECASE)
 
 
 class Categories:
@@ -25,15 +17,26 @@ class Categories:
         ]
 
     def match(self, text: str) -> list[tuple[str, str, float]]:
-        return [(name, label, weight) for name, label, weight, rx in self.items if rx and rx.search(text)]
+        return [(name, label, weight) for name, label, weight, rx in self.items if matches(rx, text)]
 
 
-def independent_sources(story: Story, wire_similarity: float) -> int:
-    """Distinct outlets, where near-identical headlines (wire copy) count once."""
+def owner_map(cfg: dict) -> dict[str, str]:
+    """outlet_key -> owner group, from [owners] in config.toml."""
+    mapping = {}
+    for group, outlets in cfg.get("owners", {}).items():
+        for name in outlets:
+            mapping[outlet_key(name)] = group
+    return mapping
+
+
+def independent_sources(story: Story, wire_similarity: float, owners: dict[str, str]) -> int:
+    """Distinct newsrooms. Outlets with one owner (Aaj Tak and India Today) count once,
+    and near-identical headlines from different outlets (wire copy) count once."""
     reps: list[frozenset] = []
     seen: set[str] = set()
     for art in sorted(story.articles, key=lambda a: a.published):
         key = outlet_key(art.outlet)
+        key = owners.get(key, key)
         if key in seen:
             continue
         seen.add(key)
@@ -50,9 +53,12 @@ def score_stories(stories: list[Story], cfg: dict, settings: ClusterSettings, no
     global_multiplier = sc.get("global_multiplier", 0.7)
     decay_hours = sc.get("decay_hours", 6)
     hot_score = cfg.get("site", {}).get("hot_score", 6.0)
+    breaking_weight = cfg.get("alerts", {}).get("breaking_weight", 3)
 
     categories = Categories(cfg.get("sensitive", []))
     india_rx = phrase_regex(cfg.get("india", {}).get("keywords", []))
+    watch_rx = phrase_regex(cfg.get("watch", {}).get("keywords", []))
+    owners = owner_map(cfg)
     fresh_cut = now - dt.timedelta(minutes=fresh_minutes)
 
     for story in stories:
@@ -61,14 +67,16 @@ def score_stories(stories: list[Story], cfg: dict, settings: ClusterSettings, no
         story.category_names = [name for name, _, _ in matched]
         story.categories = [label for _, label, _ in matched]
         sensitive = max((w for _, _, w in matched), default=0.0)
+        story.breaking = sensitive >= breaking_weight
+        story.watched = matches(watch_rx, text)
 
-        story.independent = independent_sources(story, settings.wire_similarity)
+        story.independent = independent_sources(story, settings.wire_similarity, owners)
         story.fresh = len({outlet_key(a.outlet) for a in story.articles if a.published >= fresh_cut})
 
         sections = Counter(a.section for a in story.articles)
         top = max(sections.values())
         story.section = story.lead.section if sections[story.lead.section] == top else sections.most_common(1)[0][0]
-        story.india = any(a.region == "india" for a in story.articles) or bool(india_rx and india_rx.search(text))
+        story.india = story.section == "india" or matches(india_rx, text)
 
         score = story.independent + fresh_weight * story.fresh + sensitive
         if not story.india and not matched:

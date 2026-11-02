@@ -1,5 +1,5 @@
 // Network first, cached copy when offline. Bump VERSION when you change the shell files.
-const VERSION = "pulse-v1";
+const VERSION = "pulse-v2";
 const SHELL = ["./", "./index.html", "./app.js", "./style.css", "./manifest.webmanifest", "./icon-192.png"];
 
 self.addEventListener("install", (event) => {

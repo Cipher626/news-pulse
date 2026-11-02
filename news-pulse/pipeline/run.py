@@ -3,7 +3,7 @@
     python -m pipeline.run             # what GitHub Actions runs every 30 minutes
     python -m pipeline.run --dry-run   # local check: builds site/, prints alerts, sends nothing, saves no state
 
-Steps: fetch -> cluster -> score -> pick alerts -> notify -> write site/feed.json -> save state.
+Steps: fetch -> cluster -> topics -> score -> pick alerts -> notify -> write site/feed.json -> save state.
 """
 from __future__ import annotations
 
@@ -17,11 +17,14 @@ import sys
 import tomllib
 from pathlib import Path
 
+import requests
+
 from .alerts import record_alert, recent_alerts, select_alerts
 from .cluster import ClusterSettings, Story, cluster
-from .fetch import fetch_all
+from .fetch import FeedStatus, fetch_all
 from .notify import send_story, send_test
 from .score import score_stories
+from .topics import TopicModel
 from .util import from_iso, now_utc, outlet_key, to_iso
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -29,6 +32,8 @@ CONFIG_PATH = ROOT / "config.toml"
 STATE_PATH = ROOT / "data" / "state.json"
 WEB_DIR = ROOT / "web"
 SITE_DIR = ROOT / "site"
+
+LANGUAGES = [{"id": "en", "label": "English"}, {"id": "hi", "label": "हिन्दी"}, {"id": "gu", "label": "ગુજરાતી"}]
 
 
 def load_config(path: Path = CONFIG_PATH) -> dict:
@@ -61,6 +66,23 @@ def site_url() -> str:
     return f"https://{owner.lower()}.github.io/{name}/"
 
 
+def update_health(state: dict, statuses: list[FeedStatus], now: dt.datetime, failing_after: int) -> None:
+    """Remember how long each feed has been failing, so the footer can tell a blip from a dead feed."""
+    health = state.get("health", {})
+    current = {}
+    for s in statuses:
+        entry = health.get(s.url, {})
+        if s.ok:
+            entry = {"fails": 0, "last_ok": to_iso(now)}
+        else:
+            entry = {**entry, "fails": entry.get("fails", 0) + 1}
+            entry.setdefault("since", to_iso(now))
+            if entry["fails"] >= failing_after:
+                s.failing_since = entry["since"]
+        current[s.url] = entry
+    state["health"] = current  # feeds removed from config drop out
+
+
 def story_json(story: Story) -> dict:
     lead = story.lead
     coverage, seen = [], {outlet_key(lead.outlet)}
@@ -69,17 +91,22 @@ def story_json(story: Story) -> dict:
         if key in seen:
             continue
         seen.add(key)
-        coverage.append({"title": art.title, "link": art.link, "outlet": art.outlet, "published": to_iso(art.published)})
+        coverage.append({"title": art.title, "link": art.link, "outlet": art.outlet, "lang": art.lang, "published": to_iso(art.published)})
     return {
         "id": hashlib.sha1(lead.link.encode()).hexdigest()[:12],
         "title": lead.title,
         "link": lead.link,
         "outlet": lead.outlet,
+        "lang": lead.lang,
+        "langs": story.langs,
         "section": story.section,
+        "topics": story.topics,
         "india": story.india,
         "score": story.score,
         "rank": round(story.rank, 3),
         "hot": story.hot,
+        "breaking": story.breaking,
+        "watched": story.watched,
         "alerted": story.alerted,
         "outlets": len(seen),
         "independent": story.independent,
@@ -91,22 +118,33 @@ def story_json(story: Story) -> dict:
     }
 
 
-def write_site(stories: list[Story], statuses, cfg: dict, now: dt.datetime) -> Path:
+def sources_json(statuses: list[FeedStatus]) -> list[dict]:
+    return [
+        {"name": s.name, "section": s.section, "ok": s.ok, "count": s.count, "error": s.error, "failing_since": s.failing_since}
+        for s in statuses
+    ]
+
+
+def write_site(payload: dict) -> Path:
     if SITE_DIR.exists():
         shutil.rmtree(SITE_DIR)
     shutil.copytree(WEB_DIR, SITE_DIR)
-    site = cfg.get("site", {})
-    payload = {
-        "title": site.get("title", "Pulse"),
-        "generated_at": to_iso(now),
-        "interval_minutes": site.get("interval_minutes", 30),
-        "thresholds": {"hot": site.get("hot_score", 6.0), "alert": cfg.get("alerts", {}).get("score", 8.0)},
-        "sources": [{"name": s.name, "section": s.section, "ok": s.ok, "count": s.count, "error": s.error} for s in statuses],
-        "stories": [story_json(s) for s in stories],
-    }
     out = SITE_DIR / "feed.json"
     out.write_text(json.dumps(payload, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
     return out
+
+
+def previous_feed(url: str) -> dict | None:
+    """The feed currently live on the site, used when this run could not reach enough sources."""
+    if not url:
+        return None
+    try:
+        response = requests.get(url + "feed.json", timeout=15)
+        response.raise_for_status()
+        data = response.json()
+        return data if isinstance(data, dict) and "stories" in data else None
+    except Exception:
+        return None
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -118,16 +156,45 @@ def main(argv: list[str] | None = None) -> int:
     state = load_state()
     now = now_utc()
     site_cfg = cfg.get("site", {})
+    fetch_cfg = cfg.get("fetch", {})
     alert_cfg = cfg.get("alerts", {})
     settings = ClusterSettings.from_config(cfg.get("cluster", {}))
+    topics = TopicModel(cfg)
+    url = site_url()
 
     # 1. Fetch
-    articles, statuses = fetch_all(cfg.get("feeds", []), now)
+    feeds = cfg.get("feeds", [])
+    skip = tuple(p.lower() for p in fetch_cfg.get("skip_url_patterns", []))
+    articles, statuses = fetch_all(feeds, now, skip=skip)
     ok = sum(s.ok for s in statuses)
+    update_health(state, statuses, now, fetch_cfg.get("failing_after_runs", 3))
     print(f"Fetched {len(articles)} items from {ok}/{len(statuses)} feeds")
     for status in statuses:
         if not status.ok:
-            print(f"  skipped {status.name}: {status.error}")
+            since = f" (failing since {status.failing_since[:10]})" if status.failing_since else ""
+            print(f"  skipped {status.name}: {status.error}{since}")
+
+    meta = {
+        "title": site_cfg.get("title", "Pulse"),
+        "interval_minutes": site_cfg.get("interval_minutes", 30),
+        "thresholds": {"hot": site_cfg.get("hot_score", 6.0), "alert": alert_cfg.get("score", 8.0)},
+        "topics": topics.as_json(),
+        "languages": LANGUAGES,
+    }
+
+    # 1b. Outage guard: too few sources answered, keep the last good page instead of a thin one
+    min_ok = fetch_cfg.get("min_sources_ok", 5)
+    if ok < min_ok:
+        previous = previous_feed(url)
+        if previous:
+            previous.update(meta)
+            previous.update({"stale": True, "checked_at": to_iso(now), "sources": sources_json(statuses)})
+            write_site(previous)
+            print(f"Only {ok} sources responded (minimum {min_ok}); republished the previous feed, no alerts")
+            if not args.dry_run:
+                save_state(state)
+            return 0
+        print(f"Only {ok} sources responded and no previous feed was found; publishing what we have")
 
     # 2. Timestamps: items without a usable date get the time we first saw them
     seen: dict[str, str] = state.get("seen", {})
@@ -140,19 +207,20 @@ def main(argv: list[str] | None = None) -> int:
             art.first_seen = from_iso(first)
         if art.published is None:
             art.published = art.first_seen
+        topics.refine_section(art)
     cutoff = now - dt.timedelta(hours=site_cfg.get("max_age_hours", 24))
     articles = [a for a in articles if a.published >= cutoff]
 
-    # 3. Cluster and score
+    # 3. Cluster, label topics, score
     stories = cluster(articles, settings)
+    topics.assign(stories)
     score_stories(stories, cfg, settings, now)
     print(f"Grouped into {len(stories)} stories, {sum(s.hot for s in stories)} hot")
 
     # 4. Alerts
-    picks = select_alerts(stories, state, alert_cfg, settings, now)
+    picks = select_alerts(stories, state, alert_cfg, settings, now, cfg.get("watch", {}))
     topic = os.environ.get("NTFY_TOPIC", "").strip()
     server = os.environ.get("NTFY_SERVER", "").strip() or "https://ntfy.sh"
-    url = site_url()
 
     if os.environ.get("TEST_ALERT", "").strip().lower() == "true":
         if topic and not args.dry_run:
@@ -191,7 +259,14 @@ def main(argv: list[str] | None = None) -> int:
 
     # 5. Publish
     stories.sort(key=lambda s: s.rank, reverse=True)
-    out = write_site(stories[: site_cfg.get("max_stories", 150)], statuses, cfg, now)
+    payload = {
+        **meta,
+        "generated_at": to_iso(now),
+        "stale": False,
+        "sources": sources_json(statuses),
+        "stories": [story_json(s) for s in stories[: site_cfg.get("max_stories", 200)]],
+    }
+    out = write_site(payload)
     print(f"Wrote {out.relative_to(ROOT)}")
 
     # 6. Remember what we saw (pruned so the file stays small)

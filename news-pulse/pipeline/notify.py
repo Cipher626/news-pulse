@@ -29,12 +29,14 @@ def send_story(story: Story, *, server: str, topic: str, site_url: str) -> None:
     outlets = story.outlet_names()
     names = ", ".join(outlets[:4]) + (f" and {len(outlets) - 4} more" if len(outlets) > 4 else "")
     tags = [CATEGORY_TAGS[n] for n in story.category_names if n in CATEGORY_TAGS] or ["newspaper"]
+    if story.watched:
+        tags.append("eyes")
     payload = {
         "topic": topic,
         "title": story.lead.title[:200],
         "message": f"{len(outlets)} outlets: {names}",
         "click": story.lead.link,
-        "priority": 4 if story.category_names else 3,
+        "priority": 4 if story.breaking else 3,
         "tags": tags,
     }
     if site_url:

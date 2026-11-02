@@ -9,19 +9,22 @@ from __future__ import annotations
 import calendar
 import concurrent.futures as cf
 import datetime as dt
+import threading
 from dataclasses import dataclass, field
 
 import feedparser
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
-from .util import clean_text
+from .util import clean_text, detect_lang
 
 USER_AGENT = (
     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) "
     "Chrome/130.0 Safari/537.36 PulseNewsReader/1.0"
 )
 ACCEPT = "application/rss+xml, application/atom+xml, application/xml;q=0.9, */*;q=0.8"
-MAX_ENTRIES_PER_FEED = 60
+MAX_ENTRIES_PER_FEED = 100
 FUTURE_TOLERANCE = dt.timedelta(minutes=10)
 
 
@@ -30,25 +33,48 @@ class Article:
     title: str
     link: str
     outlet: str
-    section: str                    # india | world | business
-    region: str                     # india | world
+    section: str                    # india | world
     priority: int                   # lower wins when choosing a story's headline link
     published: dt.datetime | None
+    lang: str = "en"                # en | hi | gu
+    feed_topic: str = ""            # topic the whole feed is about, if any
+    categories: list[str] = field(default_factory=list)   # RSS <category> values
     first_seen: dt.datetime | None = None
     tokens: frozenset = field(default_factory=frozenset)
+    topic_weights: dict = field(default_factory=dict)
 
 
 @dataclass
 class FeedStatus:
     name: str
+    url: str
     section: str
     ok: bool
     count: int = 0
     error: str = ""
+    failing_since: str = ""
+
+
+_local = threading.local()
+
+
+def _session() -> requests.Session:
+    """One session per worker thread, with polite retries on transient errors."""
+    if not hasattr(_local, "session"):
+        retry = Retry(
+            total=2, connect=2, read=1, status=2, backoff_factor=1.5,
+            status_forcelist=(429, 500, 502, 503, 504), allowed_methods=("GET",), raise_on_status=False,
+        )
+        session = requests.Session()
+        session.mount("https://", HTTPAdapter(max_retries=retry))
+        session.mount("http://", HTTPAdapter(max_retries=retry))
+        session.headers.update({"User-Agent": USER_AGENT, "Accept": ACCEPT})
+        _local.session = session
+    return _local.session
 
 
 def http_get(url: str, timeout: int = 20) -> bytes:
-    response = requests.get(url, timeout=timeout, headers={"User-Agent": USER_AGENT, "Accept": ACCEPT})
+    response = _session().get(url, timeout=timeout)
     response.raise_for_status()
     return response.content
 
@@ -85,19 +111,19 @@ def _short_error(exc: Exception) -> str:
     return type(exc).__name__
 
 
-def fetch_feed(feed: dict, priority: int, now: dt.datetime) -> tuple[list[Article], FeedStatus]:
+def fetch_feed(feed: dict, priority: int, now: dt.datetime, skip: tuple[str, ...] = ()) -> tuple[list[Article], FeedStatus]:
     name = feed["name"]
+    url = feed["url"]
     section = feed.get("section", "india")
-    region = feed.get("region", "world" if section == "world" else "india")
     try:
-        parsed = feedparser.parse(http_get(feed["url"]))
+        parsed = feedparser.parse(http_get(url))
     except Exception as exc:  # one broken source must never stop the run
-        return [], FeedStatus(name, section, False, error=_short_error(exc))
+        return [], FeedStatus(name, url, section, False, error=_short_error(exc))
 
     entries = parsed.entries[:MAX_ENTRIES_PER_FEED]
     if not entries:
         reason = str(getattr(parsed, "bozo_exception", "") or "no items in feed")
-        return [], FeedStatus(name, section, False, error=reason[:120])
+        return [], FeedStatus(name, url, section, False, error=reason[:120])
 
     articles: list[Article] = []
     for entry in entries:
@@ -105,30 +131,35 @@ def fetch_feed(feed: dict, priority: int, now: dt.datetime) -> tuple[list[Articl
         link = (entry.get("link") or "").strip()
         if not title or not link.startswith(("http://", "https://")):
             continue
+        if any(pattern in link.lower() for pattern in skip):
+            continue  # video pages, photo galleries, web stories
         outlet = name
         if feed.get("aggregator"):
             source = entry.get("source") or {}
             source_name = clean_text(source.get("title")) if hasattr(source, "get") else ""
             title, outlet = _split_aggregator_title(title, source_name)
             outlet = outlet or name
+        categories = [clean_text(t.get("term")) for t in entry.get("tags", []) or [] if t.get("term")]
         articles.append(
             Article(
                 title=title,
                 link=link,
                 outlet=outlet,
                 section=section,
-                region=region,
                 priority=priority,
                 published=_entry_time(entry, now),
+                lang=feed.get("lang") or detect_lang(title),
+                feed_topic=feed.get("topic", ""),
+                categories=categories[:8],
             )
         )
-    return articles, FeedStatus(name, section, True, count=len(articles))
+    return articles, FeedStatus(name, url, section, True, count=len(articles))
 
 
-def fetch_all(feeds: list[dict], now: dt.datetime, workers: int = 8):
+def fetch_all(feeds: list[dict], now: dt.datetime, skip: tuple[str, ...] = (), workers: int = 12):
     results: list = [None] * len(feeds)
     with cf.ThreadPoolExecutor(max_workers=workers) as pool:
-        futures = {pool.submit(fetch_feed, feed, i, now): i for i, feed in enumerate(feeds)}
+        futures = {pool.submit(fetch_feed, feed, i, now, skip): i for i, feed in enumerate(feeds)}
         for future in cf.as_completed(futures):
             results[futures[future]] = future.result()
     articles: list[Article] = []

@@ -1,0 +1,537 @@
+# Pulse: personal news radar.
+# Everything you are likely to tune lives in this file. Edit, commit, push:
+# the next run picks it up. No code changes needed. Times are IST.
+
+[site]
+title = "Pulse"
+interval_minutes = 30     # informational, shown on the page; the real schedule is in .github/workflows/news.yml
+max_age_hours = 24        # stories older than this drop off
+max_stories = 200         # cap on stories written to the page
+hot_score = 6.0           # stories at or above this get a warm meter on the page
+
+[fetch]
+min_sources_ok = 8        # fewer sources than this answering = outage: keep the last good page, send no alerts
+failing_after_runs = 3    # a source failing this many runs in a row shows "failing since" in the footer
+skip_url_patterns = [     # items whose link contains any of these are dropped (videos, galleries, web stories)
+  "/video/", "/videos/", "/photo/", "/photos/", "/photo-gallery/", "/photogallery/", "/gallery/",
+  "/web-stories/", "/webstories/", "/visualstories/", "/web-story/", "/short-videos/",
+]
+
+[alerts]
+enabled = true
+score = 8.0               # notify at or above this score...
+min_outlets = 3           # ...and only if at least this many independent newsrooms carry it
+max_per_run = 3
+max_per_day = 15
+cooldown_hours = 24       # the same story will not notify twice inside this window
+quiet_start = "23:30"     # during quiet hours only breaking news notifies
+quiet_end = "07:00"
+breaking_weight = 3       # a [[sensitive]] category with at least this weight makes a story "breaking"
+# Topics that may notify. Breaking news and watched keywords notify whatever their topic.
+# The topic picker in the app only changes what you see, not this list.
+topics = ["politics", "business", "tech", "science", "education", "defence", "environment", "gujarat"]
+alert_untagged = true     # stories the topic labeller could not place may still notify
+
+[watch]
+# Specific things you care about. A matching story shows in For you whatever its topic,
+# is tagged Watching, and notifies at a lower bar. Add names, companies, exams, places.
+# Short all-caps words like "AI" match too much ("AI 171" is an Air India flight); prefer phrases.
+keywords = ["ISRO", "semiconductor", "robotics", "machine learning", "JEE", "GATE exam"]
+alert_score = 4.0
+min_outlets = 2
+
+[scoring]
+# score = independent newsrooms + fresh_weight * outlets that published in the last fresh_minutes
+#         + the highest sensitive-category weight matched
+# Non-India stories with no sensitive tag are multiplied by global_multiplier.
+fresh_minutes = 90
+fresh_weight = 0.5
+global_multiplier = 0.7
+decay_hours = 6           # page ordering only: a story's rank halves every decay_hours
+
+[cluster]
+min_shared = 3
+min_overlap = 0.45
+strong_shared = 2
+strong_overlap = 0.66
+wire_similarity = 0.9     # near-identical headlines from different outlets count once (PTI/ANI wire copy)
+
+[sections]
+# URL segments that mark a story from a general Indian feed as world news.
+world_paths = ["world", "world-news", "international", "videsh", "duniya", "global", "abroad"]
+
+# Outlets with one owner count as one newsroom when judging how widely a story spread.
+# Names must match the outlet names in [[feeds]] or the names Google News uses.
+[owners]
+"India Today Group" = ["India Today", "Aaj Tak", "Business Today", "The Lallantop", "AajTak"]
+"Times Group" = ["Times of India", "Economic Times", "Navbharat Times", "Times Now", "Mirror Now", "ET Now"]
+"HT Media" = ["Hindustan Times", "Mint", "Livemint", "Live Hindustan", "Hindustan"]
+"ABP Group" = ["ABP Live", "ABP News", "ABP Majha", "ABP Ananda", "ABP Asmita"]
+"India TV" = ["India TV", "India TV News", "India TV Hindi", "IndiaTV"]
+"Express Group" = ["Indian Express", "Financial Express", "Jansatta"]
+"The Hindu Group" = ["The Hindu", "BusinessLine", "The Hindu BusinessLine", "Frontline", "Sportstar"]
+"NDTV" = ["NDTV", "NDTV India", "NDTV Profit", "NDTV Sports", "NDTV Khabar"]
+"Network18" = ["News18", "News18 Hindi", "CNBC-TV18", "Moneycontrol", "Firstpost", "CNN-News18", "News18 Gujarati"]
+"DB Corp" = ["Divya Bhaskar", "Dainik Bhaskar", "Bhaskar English", "DivyaBhaskar"]
+"BBC" = ["BBC News", "BBC", "BBC Hindi", "BBC News Hindi", "BBC News Gujarati"]
+"Zee Media" = ["Zee News", "WION", "Zee Business", "DNA India"]
+
+# Words that make a story India-relevant even when it comes from a world feed.
+[india]
+keywords = [
+  "india", "indian", "indians", "new delhi", "delhi", "mumbai", "bengaluru", "bangalore", "chennai",
+  "kolkata", "hyderabad", "ahmedabad", "gandhinagar", "pune", "gujarat", "maharashtra", "karnataka",
+  "kerala", "tamil nadu", "uttar pradesh", "bihar", "punjab", "rajasthan", "kashmir", "j&k", "ladakh",
+  "assam", "manipur", "odisha", "west bengal", "modi", "rbi", "sensex", "nifty", "rupee", "isro",
+  "bjp", "lok sabha", "rajya sabha", "pakistan", "bangladesh", "sri lanka", "nepal", "lac",
+  "भारत", "भारतीय", "दिल्ली", "मोदी", "ભારત", "ગુજરાત",
+]
+
+# ---------------------------------------------------------------------------------------------
+# Topics. These are the choices in the app's topic picker. Each needs a unique id.
+#   default  - selected in the app until you change it there
+#   paths    - URL segments or RSS categories that mean this topic (/sports/, /cricket/, ...)
+#   keywords - headline words; English, Hindi or Gujarati
+# Add a topic by adding a block. It appears in the app on the next run.
+# ---------------------------------------------------------------------------------------------
+
+[[topics]]
+id = "politics"
+label = "Politics"
+default = true
+paths = ["politics", "elections", "election", "assembly-elections", "lok-sabha-elections", "rajniti", "chunav"]
+keywords = [
+  "bjp", "congress", "aap", "lok sabha", "rajya sabha", "parliament", "assembly polls", "election commission",
+  "chief minister", "opposition", "cabinet", "union minister", "by-election", "bypoll",
+  "भाजपा", "कांग्रेस", "चुनाव", "मुख्यमंत्री", "संसद", "विपक्ष", "ભાજપ", "કોંગ્રેસ", "ચૂંટણી", "મુખ્યમંત્રી",
+]
+
+[[topics]]
+id = "business"
+label = "Business & markets"
+default = true
+paths = ["business", "markets", "market", "economy", "money", "personal-finance", "companies", "industry",
+         "stock-market", "mutual-funds", "banking", "budget", "vyapar", "karobar"]
+keywords = [
+  "sensex", "nifty", "rbi", "gdp", "inflation", "ipo", "stocks", "shares", "rupee", "gst", "repo rate",
+  "earnings", "startup", "funding round", "union budget", "sebi", "mutual fund",
+  "सेंसेक्स", "निफ्टी", "शेयर बाजार", "महंगाई", "आरबीआई", "सेन्सेक्स", "શેરબજાર", "સેન્સેક્સ", "મોંઘવારી",
+]
+
+[[topics]]
+id = "tech"
+label = "Technology"
+default = true
+paths = ["technology", "tech", "gadgets", "mobile", "internet", "tech-news", "sci-tech", "artificial-intelligence"]
+keywords = [
+  "artificial intelligence", "chatgpt", "openai", "anthropic", "gemini", "nvidia", "google", "apple",
+  "iphone", "android", "smartphone", "semiconductor", "chip", "cyber attack", "data breach", "5g",
+  "microsoft", "meta", "software", "llm", "robotics",
+]
+
+[[topics]]
+id = "science"
+label = "Science & space"
+default = true
+paths = ["science", "space", "isro"]
+keywords = [
+  "isro", "nasa", "spacex", "chandrayaan", "gaganyaan", "aditya-l1", "satellite", "rocket launch",
+  "scientists", "researchers", "study finds", "इसरो", "चंद्रयान", "ઇસરો",
+]
+
+[[topics]]
+id = "sports"
+label = "Sports"
+default = true
+paths = ["sports", "sport", "cricket", "football", "tennis", "hockey", "ipl", "olympics", "khel",
+         "badminton", "chess", "kabaddi", "f1", "athletics", "wrestling"]
+keywords = [
+  "cricket", "ipl", "odi", "t20", "test match", "world cup", "bcci", "kohli", "rohit sharma", "football",
+  "fifa", "olympics", "neeraj chopra", "badminton", "hockey", "chess", "grandmaster",
+  "क्रिकेट", "आईपीएल", "टीम इंडिया", "ક્રિકેટ",
+]
+
+[[topics]]
+id = "entertainment"
+label = "Entertainment"
+default = false
+paths = ["entertainment", "bollywood", "movies", "movie-review", "television", "tv", "music",
+         "celebrities", "web-series", "ott", "manoranjan", "film", "hollywood"]
+keywords = ["bollywood", "box office", "trailer", "netflix", "ott release", "web series", "बॉलीवुड", "फिल्म", "ફિલ્મ"]
+
+[[topics]]
+id = "health"
+label = "Health"
+default = true
+paths = ["health", "fitness", "health-news", "wellness", "swasthya"]
+keywords = [
+  "hospital", "doctors", "vaccine", "disease", "virus", "outbreak", "aiims", "cancer", "dengue",
+  "malaria", "heart attack", "icmr", "अस्पताल", "बीमारी", "डॉक्टर", "હોસ્પિટલ",
+]
+
+[[topics]]
+id = "education"
+label = "Education & exams"
+default = true
+paths = ["education", "education-today", "exams", "results", "jobs", "career", "careers", "admission", "news-education"]
+keywords = [
+  "jee", "jee main", "jee advanced", "neet", "cbse", "ugc", "upsc", "gate exam", "cuet", "board exam",
+  "university", "iit", "nit", "admit card", "students", "exam", "परीक्षा", "छात्र", "पेपर लीक", "પરીક્ષા", "વિદ્યાર્થી",
+]
+
+[[topics]]
+id = "law"
+label = "Courts & crime"
+default = true
+paths = ["crime", "law", "courts", "legal-news", "crime-news", "apradh"]
+keywords = [
+  "supreme court", "high court", "bail", "cbi", "enforcement directorate", "police", "arrested", "murder",
+  "fir", "chargesheet", "verdict", "सुप्रीम कोर्ट", "हाईकोर्ट", "पुलिस", "गिरफ्तार", "हत्या",
+  "કોર્ટ", "પોલીસ", "ધરપકડ", "હત્યા",
+]
+
+[[topics]]
+id = "defence"
+label = "Defence & security"
+default = true
+paths = ["defence", "defense", "security", "army", "military"]
+keywords = [
+  "indian army", "army chief", "indian navy", "iaf", "air force", "drdo", "border", "lac", "loc",
+  "ceasefire", "missile", "terror", "militants", "jawans", "सेना", "जवान", "आतंकी", "સેના", "આતંકી",
+]
+
+[[topics]]
+id = "environment"
+label = "Weather & environment"
+default = true
+paths = ["weather", "environment", "climate", "mausam", "monsoon", "climate-change"]
+keywords = [
+  "imd", "monsoon", "heatwave", "rainfall", "heavy rain", "cyclone", "air quality", "aqi", "pollution",
+  "climate", "मौसम", "बारिश", "मानसून", "चक्रवात", "વરસાદ", "હવામાન", "ચોમાસું", "આગાહી",
+]
+
+[[topics]]
+id = "gujarat"
+label = "Gujarat"
+default = true
+paths = ["gujarat", "ahmedabad", "surat", "vadodara", "rajkot", "gandhinagar", "bhavnagar", "jamnagar",
+         "kutch", "saurashtra", "junagadh", "anand", "mehsana"]
+keywords = [
+  "gujarat", "ahmedabad", "surat", "vadodara", "baroda", "rajkot", "gandhinagar", "bhavnagar",
+  "jamnagar", "kutch", "saurashtra", "गुजरात", "अहमदाबाद", "ગુજરાત", "અમદાવાદ", "સુરત", "વડોદરા",
+  "રાજકોટ", "ગાંધીનગર", "ભાવનગર", "જામનગર", "કચ્છ", "સૌરાષ્ટ્ર",
+]
+
+# ---------------------------------------------------------------------------------------------
+# Sensitive categories. weight is added to the score; label is what the page shows.
+# weight >= alerts.breaking_weight makes a story "breaking": it may notify in quiet hours
+# and whatever its topic.
+# ---------------------------------------------------------------------------------------------
+
+[[sensitive]]
+name = "violence"
+label = "Violence"
+weight = 3
+keywords = [
+  "assassination", "assassinated", "assassinate", "assassination attempt", "shot dead", "gunman",
+  "gunmen", "gunfire", "shooting", "blast", "explosion", "terror attack", "terrorist",
+  "militants", "hostage", "bomb", "bombing", "stabbed", "riot", "lynched",
+  "हमला", "हमले", "धमाका", "विस्फोट", "आतंकी हमला", "गोलीबारी", "हत्या की कोशिश",
+  "હુમલો", "વિસ્ફોટ", "બ્લાસ્ટ", "ગોળીબાર",
+]
+
+[[sensitive]]
+name = "disaster"
+label = "Disaster"
+weight = 3
+keywords = [
+  "earthquake", "quake", "tsunami", "cyclone", "flood", "flash flood", "landslide", "cloudburst",
+  "wildfire", "stampede", "derailed", "derailment", "plane crash", "air crash", "building collapse",
+  "bridge collapse", "avalanche", "volcano", "eruption", "heatwave",
+  "भूकंप", "बाढ़", "भूस्खलन", "चक्रवात", "भगदड़", "बादल फटा", "विमान हादसा", "ट्रेन हादसा",
+  "ભૂકંપ", "પૂર", "વાવાઝોડું", "ભૂસ્ખલન", "દુર્ઘટના",
+]
+
+[[sensitive]]
+name = "conflict"
+label = "Conflict"
+weight = 3
+keywords = [
+  "war", "airstrike", "air strike", "missile", "drone strike", "ceasefire", "invasion", "border clash",
+  "martial law", "coup", "nuclear", "युद्ध", "मिसाइल", "एयरस्ट्राइक", "युद्धविराम", "યુદ્ધ", "મિસાઇલ",
+]
+
+[[sensitive]]
+name = "markets"
+label = "Markets"
+weight = 2
+keywords = [
+  "sensex", "nifty", "stock market", "market crash", "sell-off", "selloff", "plunge", "tumble",
+  "slump", "bloodbath", "circuit breaker", "repo rate", "rate cut", "rate hike", "federal reserve",
+  "crude", "oil price", "rupee", "recession", "tariff",
+  "सेंसेक्स", "निफ्टी", "शेयर बाजार", "सेन्सेक्स", "સેન્સેક્સ", "શેરબજાર",
+]
+
+[[sensitive]]
+name = "politics"
+label = "Politics"
+weight = 2
+keywords = [
+  "resigns", "resignation", "no-confidence", "impeachment", "impeached", "president's rule",
+  "election results", "exit poll", "arrested", "dissolved",
+  "इस्तीफा", "गिरफ्तार", "चुनाव नतीजे", "રાજીનામું", "ધરપકડ",
+]
+
+[[sensitive]]
+name = "health"
+label = "Health"
+weight = 2
+keywords = ["outbreak", "pandemic", "epidemic", "nipah", "bird flu", "cholera", "covid", "महामारी", "રોગચાળો"]
+
+# ---------------------------------------------------------------------------------------------
+# Sources. Order matters: when several outlets cover a story, the headline link comes from the
+# source listed first. English first so mixed-language stories lead with English.
+#   section    india | world
+#   topic      optional: everything in this feed belongs to that topic
+#   lang       optional: en | hi | gu (detected from the headline if missing)
+#   aggregator true when one feed carries many outlets (Google News); outlet read per item
+# Feeds marked "checked" were confirmed working by an independent test in Oct 2026.
+# Google News "site:" searches stand in for outlets without a working feed of their own.
+# A failing feed is skipped and listed in the page footer; fix or delete it here.
+# ---------------------------------------------------------------------------------------------
+
+# --- India, English
+[[feeds]]
+name = "The Hindu"            # checked
+url = "https://www.thehindu.com/news/national/feeder/default.rss"
+section = "india"
+
+[[feeds]]
+name = "Indian Express"       # checked
+url = "https://indianexpress.com/section/india/feed/"
+section = "india"
+
+[[feeds]]
+name = "Hindustan Times"      # checked
+url = "https://www.hindustantimes.com/feeds/rss/india-news/rssfeed.xml"
+section = "india"
+
+[[feeds]]
+name = "NDTV"                 # checked (FeedBurner, unofficial)
+url = "https://feeds.feedburner.com/ndtvnews-latest"
+section = "india"
+
+[[feeds]]
+name = "India Today"          # checked
+url = "https://www.indiatoday.in/rss/home"
+section = "india"
+
+[[feeds]]
+name = "Times of India"       # checked
+url = "https://timesofindia.indiatimes.com/rssfeedstopstories.cms"
+section = "india"
+
+[[feeds]]
+name = "ABP Live"             # checked
+url = "https://news.abplive.com/news/india/feed"
+section = "india"
+
+[[feeds]]
+name = "India TV"
+url = "https://news.google.com/rss/search?q=site:indiatvnews.com+when:1d&hl=en-IN&gl=IN&ceid=IN:en"
+section = "india"
+aggregator = true
+
+[[feeds]]
+name = "News18"               # checked
+url = "https://www.news18.com/commonfeeds/v1/eng/rss/india.xml"
+section = "india"
+
+[[feeds]]
+name = "PIB"
+url = "https://www.pib.gov.in/RssMain.aspx?ModId=6&Lang=1&Regid=3"
+section = "india"
+
+# --- India, Hindi
+[[feeds]]
+name = "Aaj Tak"              # checked
+url = "https://www.aajtak.in/rssfeeds?id=home"
+section = "india"
+lang = "hi"
+
+[[feeds]]
+name = "ABP News"
+url = "https://news.google.com/rss/search?q=site:abplive.com+when:1d&hl=hi&gl=IN&ceid=IN:hi"
+section = "india"
+aggregator = true
+
+[[feeds]]
+name = "India TV Hindi"
+url = "https://www.indiatv.in/rssnews/topstory-india.xml"
+section = "india"
+lang = "hi"
+
+[[feeds]]
+name = "BBC Hindi"            # checked
+url = "https://feeds.bbci.co.uk/hindi/rss.xml"
+section = "india"
+lang = "hi"
+
+# --- Gujarat, Gujarati
+[[feeds]]
+name = "Divya Bhaskar"
+url = "https://news.google.com/rss/search?q=site:divyabhaskar.co.in+when:1d&hl=gu&gl=IN&ceid=IN:gu"
+section = "india"
+aggregator = true
+
+[[feeds]]
+name = "Divya Bhaskar"        # checked
+url = "https://divyabhaskar.co.in/rss-v1--category-969.xml"
+section = "india"
+topic = "business"
+lang = "gu"
+
+# --- Business
+[[feeds]]
+name = "Mint"                 # checked
+url = "https://www.livemint.com/rss/news"
+section = "india"
+topic = "business"
+
+[[feeds]]
+name = "Business Standard"    # checked
+url = "https://www.business-standard.com/rss/latest.rss"
+section = "india"
+topic = "business"
+
+[[feeds]]
+name = "Economic Times"       # checked
+url = "https://economictimes.indiatimes.com/rssfeedstopstories.cms"
+section = "india"
+topic = "business"
+
+[[feeds]]
+name = "Moneycontrol"         # its own feed is blocked; Google News stand-in
+url = "https://news.google.com/rss/search?q=site:moneycontrol.com+when:1d&hl=en-IN&gl=IN&ceid=IN:en"
+section = "india"
+topic = "business"
+aggregator = true
+
+# --- Topic feeds (fill the topic picker; fetched every run, shown when you select the topic)
+[[feeds]]
+name = "The Hindu"
+url = "https://www.thehindu.com/sport/feeder/default.rss"
+section = "india"
+topic = "sports"
+
+[[feeds]]
+name = "The Hindu"
+url = "https://www.thehindu.com/sci-tech/feeder/default.rss"
+section = "india"
+topic = "tech"
+
+[[feeds]]
+name = "Indian Express"
+url = "https://indianexpress.com/section/education/feed/"
+section = "india"
+topic = "education"
+
+[[feeds]]
+name = "Google News Sports"
+url = "https://news.google.com/rss/headlines/section/topic/SPORTS?hl=en-IN&gl=IN&ceid=IN:en"
+section = "india"
+topic = "sports"
+aggregator = true
+
+[[feeds]]
+name = "Google News Technology"
+url = "https://news.google.com/rss/headlines/section/topic/TECHNOLOGY?hl=en-IN&gl=IN&ceid=IN:en"
+section = "world"
+topic = "tech"
+aggregator = true
+
+[[feeds]]
+name = "Google News Science"
+url = "https://news.google.com/rss/headlines/section/topic/SCIENCE?hl=en-IN&gl=IN&ceid=IN:en"
+section = "world"
+topic = "science"
+aggregator = true
+
+[[feeds]]
+name = "Google News Entertainment"
+url = "https://news.google.com/rss/headlines/section/topic/ENTERTAINMENT?hl=en-IN&gl=IN&ceid=IN:en"
+section = "india"
+topic = "entertainment"
+aggregator = true
+
+[[feeds]]
+name = "Google News Health"
+url = "https://news.google.com/rss/headlines/section/topic/HEALTH?hl=en-IN&gl=IN&ceid=IN:en"
+section = "india"
+topic = "health"
+aggregator = true
+
+[[feeds]]
+name = "Google News Gujarat"
+url = "https://news.google.com/rss/search?q=Gujarat+when:1d&hl=en-IN&gl=IN&ceid=IN:en"
+section = "india"
+topic = "gujarat"
+aggregator = true
+
+# --- World
+[[feeds]]
+name = "The Hindu"
+url = "https://www.thehindu.com/news/international/feeder/default.rss"
+section = "world"
+
+[[feeds]]
+name = "BBC News"
+url = "https://feeds.bbci.co.uk/news/world/rss.xml"
+section = "world"
+
+[[feeds]]
+name = "Al Jazeera"
+url = "https://www.aljazeera.com/xml/rss/all.xml"
+section = "world"
+
+[[feeds]]
+name = "The Guardian"
+url = "https://www.theguardian.com/world/rss"
+section = "world"
+
+[[feeds]]
+name = "The New York Times"
+url = "https://rss.nytimes.com/services/xml/rss/nyt/World.xml"
+section = "world"
+
+# --- Google News general (keep last: lowest priority for headline links)
+[[feeds]]
+name = "Google News India"
+url = "https://news.google.com/rss?hl=en-IN&gl=IN&ceid=IN:en"
+section = "india"
+aggregator = true
+
+[[feeds]]
+name = "Google News Hindi"
+url = "https://news.google.com/rss?hl=hi&gl=IN&ceid=IN:hi"
+section = "india"
+aggregator = true
+
+[[feeds]]
+name = "Google News Nation"
+url = "https://news.google.com/rss/headlines/section/topic/NATION?hl=en-IN&gl=IN&ceid=IN:en"
+section = "india"
+aggregator = true
+
+[[feeds]]
+name = "Google News Business"
+url = "https://news.google.com/rss/headlines/section/topic/BUSINESS?hl=en-IN&gl=IN&ceid=IN:en"
+section = "india"
+topic = "business"
+aggregator = true
+
+[[feeds]]
+name = "Google News World"
+url = "https://news.google.com/rss/headlines/section/topic/WORLD?hl=en-IN&gl=IN&ceid=IN:en"
+section = "world"
+aggregator = true

@@ -23,7 +23,12 @@
     <div class="bar-inner">
       <h1 class="mark"><span class="dot" id="fresh-dot" aria-hidden="true"></span>Pulse</h1>
       <p class="updated" id="updated" aria-live="polite">Loading</p>
-      <button class="refresh" id="refresh" type="button" aria-label="Refresh">
+      <button class="icon-button" id="open-topics" type="button" aria-label="Choose topics" aria-haspopup="dialog">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+          <path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/>
+        </svg>
+      </button>
+      <button class="icon-button refresh" id="refresh" type="button" aria-label="Refresh">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/>
         </svg>
@@ -39,6 +44,18 @@
   </main>
 
   <footer class="foot" id="foot"></footer>
+
+  <dialog class="sheet" id="topics-sheet" aria-labelledby="sheet-title">
+    <form method="dialog" class="sheet-inner">
+      <h2 id="sheet-title">Your topics</h2>
+      <p class="sheet-note">For you shows these topics, plus breaking news and anything on your watch list. Saved on this device.</p>
+      <fieldset class="choices" id="topic-choices"><legend class="visually-hidden">Topics</legend></fieldset>
+      <h3>Languages</h3>
+      <fieldset class="choices" id="lang-choices"><legend class="visually-hidden">Languages</legend></fieldset>
+      <p class="sheet-note">Notifications follow the topic list in config.toml, not this screen.</p>
+      <button class="done" type="submit">Done</button>
+    </form>
+  </dialog>
 
   <script src="app.js" defer></script>
 </body>

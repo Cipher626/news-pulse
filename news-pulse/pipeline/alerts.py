@@ -1,6 +1,13 @@
-"""Which stories become phone notifications. Thresholds live in [alerts] in config.toml.
+"""Which stories become phone notifications. Settings live in [alerts] and [watch] in config.toml.
 
 This file is the policy. notify.py is the delivery channel. Change one without the other.
+
+A story notifies when all of these hold:
+  - it clears the bar: score >= alerts.score and independent outlets >= alerts.min_outlets
+    (watched stories use the lower watch.alert_score / watch.min_outlets bar)
+  - it is eligible: breaking news, a watched keyword, or a topic in alerts.topics
+  - it is not quiet hours, unless it is breaking
+  - it was not already notified inside cooldown_hours, and the per-run/per-day caps allow it
 """
 from __future__ import annotations
 
@@ -32,7 +39,27 @@ def recent_alerts(state: dict, cfg: dict, now: dt.datetime) -> list[dict]:
     return [a for a in state.get("alerted", []) if from_iso(a["at"]) >= cutoff]
 
 
-def select_alerts(stories: list[Story], state: dict, cfg: dict, settings: ClusterSettings, now: dt.datetime) -> list[Story]:
+def eligible(story: Story, cfg: dict) -> bool:
+    if story.breaking or story.watched:
+        return True
+    allowed = cfg.get("topics")
+    if allowed is None:
+        return True
+    if not story.topics:
+        return bool(cfg.get("alert_untagged", True))
+    return bool(set(story.topics) & set(allowed))
+
+
+def clears_bar(story: Story, cfg: dict, watch: dict) -> bool:
+    if story.score >= cfg.get("score", 8.0) and story.independent >= cfg.get("min_outlets", 3):
+        return True
+    return story.watched and story.score >= watch.get("alert_score", 4.0) and story.independent >= watch.get("min_outlets", 2)
+
+
+def select_alerts(
+    stories: list[Story], state: dict, cfg: dict, settings: ClusterSettings, now: dt.datetime, watch: dict | None = None
+) -> list[Story]:
+    watch = watch or {}
     history = [frozenset(a["tokens"]) for a in recent_alerts(state, cfg, now)]
     day = _today(state, now)
     budget = max(0, min(cfg.get("max_per_run", 3), cfg.get("max_per_day", 15) - day["count"]))
@@ -46,9 +73,9 @@ def select_alerts(stories: list[Story], state: dict, cfg: dict, settings: Cluste
             continue
         if not cfg.get("enabled", True) or len(picks) >= budget:
             continue
-        if story.score < cfg.get("score", 8.0) or story.independent < cfg.get("min_outlets", 3):
+        if not clears_bar(story, cfg, watch) or not eligible(story, cfg):
             continue
-        if quiet and not story.categories:
+        if quiet and not story.breaking:
             continue
         if any(similar(tokens, p.tokens, settings) for p in picks):
             continue
