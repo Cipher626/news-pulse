@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Pulse</title>
+  <meta name="description" content="Personal news radar: India first, the world when it matters.">
+  <meta name="theme-color" content="#edf0f5" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#0f1520" media="(prefers-color-scheme: dark)">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icon-192.png" type="image/png">
+  <link rel="apple-touch-icon" href="apple-touch-icon.png">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Pulse">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&display=swap">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="bar">
+    <div class="bar-inner">
+      <h1 class="mark"><span class="dot" id="fresh-dot" aria-hidden="true"></span>Pulse</h1>
+      <p class="updated" id="updated" aria-live="polite">Loading</p>
+      <button class="refresh" id="refresh" type="button" aria-label="Refresh">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/>
+        </svg>
+      </button>
+    </div>
+    <nav class="tabs" id="tabs" role="tablist" aria-label="Sections"></nav>
+  </header>
+
+  <main>
+    <p class="notice" id="notice" role="status" hidden></p>
+    <ul class="stories" id="stories" aria-labelledby="tab-top"></ul>
+    <p class="empty" id="empty" hidden></p>
+  </main>
+
+  <footer class="foot" id="foot"></footer>
+
+  <script src="app.js" defer></script>
+</body>
+</html>

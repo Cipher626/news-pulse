@@ -1,0 +1,240 @@
+# Pulse: personal news radar.
+# Everything you are likely to tune lives in this file. Edit, commit, push:
+# the next run picks it up. No code changes needed.
+# Times are IST.
+
+[site]
+title = "Pulse"
+interval_minutes = 30     # informational, shown on the page; the real schedule is in .github/workflows/news.yml
+max_age_hours = 24        # stories older than this drop off
+max_stories = 150         # cap on stories written to the page
+hot_score = 6.0           # stories at or above this get a warm meter on the page
+
+[alerts]
+enabled = true
+score = 8.0               # notify at or above this score...
+min_outlets = 3           # ...and only if at least this many independent outlets carry it
+max_per_run = 3
+max_per_day = 15
+cooldown_hours = 24       # the same story will not notify twice inside this window
+quiet_start = "23:30"     # during quiet hours only stories with a sensitive tag notify
+quiet_end = "07:00"
+
+[scoring]
+# score = independent outlets + fresh_weight * outlets that published in the last fresh_minutes
+#         + the highest sensitive-category weight matched
+# Non-India stories with no sensitive tag are multiplied by global_multiplier.
+fresh_minutes = 90
+fresh_weight = 0.5
+global_multiplier = 0.7
+decay_hours = 6           # page ordering only: a story's rank halves every decay_hours
+
+[cluster]
+# Two headlines are the same story when they share enough content words.
+min_shared = 3
+min_overlap = 0.45
+strong_shared = 2         # ...or share this many words that make up most of the shorter headline
+strong_overlap = 0.66
+wire_similarity = 0.9     # near-identical headlines from different outlets count once (PTI/ANI wire copy)
+
+# Words that make a story India-relevant even when it comes from a world feed.
+[india]
+keywords = [
+  "india", "indian", "indians", "new delhi", "delhi", "mumbai", "bengaluru", "bangalore", "chennai",
+  "kolkata", "hyderabad", "ahmedabad", "gandhinagar", "pune", "gujarat", "maharashtra", "karnataka",
+  "kerala", "tamil nadu", "uttar pradesh", "bihar", "punjab", "rajasthan", "kashmir", "j&k", "ladakh",
+  "assam", "manipur", "odisha", "west bengal", "modi", "rbi", "sensex", "nifty", "rupee", "isro",
+  "bjp", "lok sabha", "rajya sabha", "pakistan", "bangladesh", "sri lanka", "nepal", "lac",
+]
+
+# Sensitive categories. weight is added to the score; label is what the page shows.
+# Matching is whole-word and case-insensitive on headlines.
+[[sensitive]]
+name = "violence"
+label = "Violence"
+weight = 3
+keywords = [
+  "assassination", "assassinated", "assassinate", "assassination attempt", "shot dead", "gunman",
+  "gunmen", "gunfire", "shooting", "blast", "blasts", "explosion", "terror attack", "terrorist",
+  "terrorists", "militants", "hostage", "hostages", "bomb", "bombing", "stabbed", "riots", "lynched",
+]
+
+[[sensitive]]
+name = "disaster"
+label = "Disaster"
+weight = 3
+keywords = [
+  "earthquake", "quake", "tsunami", "cyclone", "flood", "floods", "flash flood", "landslide",
+  "landslides", "cloudburst", "wildfire", "stampede", "derailed", "derailment", "plane crash",
+  "air crash", "building collapse", "bridge collapse", "avalanche", "volcano", "eruption", "heatwave",
+]
+
+[[sensitive]]
+name = "conflict"
+label = "Conflict"
+weight = 3
+keywords = [
+  "war", "airstrike", "airstrikes", "air strike", "missile", "missiles", "drone strike", "ceasefire",
+  "invasion", "border clash", "martial law", "coup", "nuclear",
+]
+
+[[sensitive]]
+name = "markets"
+label = "Markets"
+weight = 2
+keywords = [
+  "sensex", "nifty", "stock market", "market crash", "sell-off", "selloff", "plunge", "plunges",
+  "tumbles", "slumps", "bloodbath", "circuit breaker", "repo rate", "rate cut", "rate hike",
+  "federal reserve", "crude", "oil prices", "rupee", "recession", "tariff", "tariffs",
+]
+
+[[sensitive]]
+name = "politics"
+label = "Politics"
+weight = 2
+keywords = [
+  "resigns", "resignation", "no-confidence", "impeachment", "impeached", "president's rule",
+  "election results", "exit poll", "arrested", "dissolved",
+]
+
+[[sensitive]]
+name = "health"
+label = "Health"
+weight = 2
+keywords = ["outbreak", "pandemic", "epidemic", "nipah", "bird flu", "cholera", "covid"]
+
+# Sources. Order matters: when several outlets cover a story, the headline link comes
+# from the source listed first. Keep the Google News aggregators at the bottom.
+# section: india | world | business      region: india | world
+# aggregator = true means the feed carries many outlets (outlet name read per item).
+# A feed that fails is skipped and shown in the page footer; fix or delete it here.
+
+[[feeds]]
+name = "The Hindu"
+url = "https://www.thehindu.com/news/national/feeder/default.rss"
+section = "india"
+region = "india"
+
+[[feeds]]
+name = "Indian Express"
+url = "https://indianexpress.com/section/india/feed/"
+section = "india"
+region = "india"
+
+[[feeds]]
+name = "Hindustan Times"
+url = "https://www.hindustantimes.com/feeds/rss/india-news/rssfeed.xml"
+section = "india"
+region = "india"
+
+[[feeds]]
+name = "NDTV"
+url = "https://feeds.feedburner.com/ndtvnews-top-stories"
+section = "india"
+region = "india"
+
+[[feeds]]
+name = "Times of India"
+url = "https://timesofindia.indiatimes.com/rssfeeds/-2128936835.cms"
+section = "india"
+region = "india"
+
+[[feeds]]
+name = "India Today"
+url = "https://www.indiatoday.in/rss/home"
+section = "india"
+region = "india"
+
+[[feeds]]
+name = "ThePrint"
+url = "https://theprint.in/feed/"
+section = "india"
+region = "india"
+
+[[feeds]]
+name = "PIB"
+url = "https://www.pib.gov.in/RssMain.aspx?ModId=6&Lang=1&Regid=3"
+section = "india"
+region = "india"
+
+[[feeds]]
+name = "Mint"
+url = "https://www.livemint.com/rss/news"
+section = "business"
+region = "india"
+
+[[feeds]]
+name = "Economic Times"
+url = "https://economictimes.indiatimes.com/markets/rssfeeds/1977021501.cms"
+section = "business"
+region = "india"
+
+[[feeds]]
+name = "Moneycontrol"
+url = "https://www.moneycontrol.com/rss/latestnews.xml"
+section = "business"
+region = "india"
+
+[[feeds]]
+name = "Business Standard"
+url = "https://www.business-standard.com/rss/home_page_top_stories.rss"
+section = "business"
+region = "india"
+
+[[feeds]]
+name = "The Hindu"
+url = "https://www.thehindu.com/news/international/feeder/default.rss"
+section = "world"
+region = "world"
+
+[[feeds]]
+name = "BBC News"
+url = "https://feeds.bbci.co.uk/news/world/rss.xml"
+section = "world"
+region = "world"
+
+[[feeds]]
+name = "Al Jazeera"
+url = "https://www.aljazeera.com/xml/rss/all.xml"
+section = "world"
+region = "world"
+
+[[feeds]]
+name = "The Guardian"
+url = "https://www.theguardian.com/world/rss"
+section = "world"
+region = "world"
+
+[[feeds]]
+name = "The New York Times"
+url = "https://rss.nytimes.com/services/xml/rss/nyt/World.xml"
+section = "world"
+region = "world"
+
+[[feeds]]
+name = "Google News India"
+url = "https://news.google.com/rss?hl=en-IN&gl=IN&ceid=IN:en"
+section = "india"
+region = "india"
+aggregator = true
+
+[[feeds]]
+name = "Google News Nation"
+url = "https://news.google.com/rss/headlines/section/topic/NATION?hl=en-IN&gl=IN&ceid=IN:en"
+section = "india"
+region = "india"
+aggregator = true
+
+[[feeds]]
+name = "Google News Business"
+url = "https://news.google.com/rss/headlines/section/topic/BUSINESS?hl=en-IN&gl=IN&ceid=IN:en"
+section = "business"
+region = "india"
+aggregator = true
+
+[[feeds]]
+name = "Google News World"
+url = "https://news.google.com/rss/headlines/section/topic/WORLD?hl=en-IN&gl=IN&ceid=IN:en"
+section = "world"
+region = "world"
+aggregator = true
