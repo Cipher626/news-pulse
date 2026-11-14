@@ -25,6 +25,9 @@ class Topic:
     id: str
     label: str
     default: bool
+    weight: float                 # taste multiplier on the score (1.0 = neutral)
+    alert_score: float | None     # optional lower notification bar for this topic
+    alert_min_outlets: int | None
     paths: frozenset
     keywords: object  # compiled regex or None
 
@@ -36,6 +39,9 @@ class TopicModel:
                 id=t["id"],
                 label=t.get("label", t["id"].title()),
                 default=bool(t.get("default", True)),
+                weight=float(t.get("weight", 1.0)),
+                alert_score=t.get("alert_score"),
+                alert_min_outlets=t.get("alert_min_outlets"),
                 paths=frozenset(p.lower() for p in t.get("paths", [])),
                 keywords=phrase_regex(t.get("keywords", [])),
             )
@@ -83,5 +89,11 @@ class TopicModel:
             strong = [tid for tid, w in ranked if w >= 2]
             story.topics = (strong or [tid for tid, _ in ranked])[:2]
 
+    def weights(self) -> dict[str, float]:
+        return {t.id: t.weight for t in self.topics}
+
+    def alert_bars(self) -> dict[str, tuple[float | None, int | None]]:
+        return {t.id: (t.alert_score, t.alert_min_outlets) for t in self.topics if t.alert_score or t.alert_min_outlets}
+
     def as_json(self) -> list[dict]:
-        return [{"id": t.id, "label": t.label, "default": t.default} for t in self.topics]
+        return [{"id": t.id, "label": t.label, "default": t.default, "weight": t.weight} for t in self.topics]

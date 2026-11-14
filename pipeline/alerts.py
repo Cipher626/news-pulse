@@ -4,7 +4,7 @@ This file is the policy. notify.py is the delivery channel. Change one without t
 
 A story notifies when all of these hold:
   - it clears the bar: score >= alerts.score and independent outlets >= alerts.min_outlets
-    (watched stories use the lower watch.alert_score / watch.min_outlets bar)
+    (a topic's alert_score / alert_min_outlets, or the watch list's bar, can lower it)
   - it is eligible: breaking news, a watched keyword, or a topic in alerts.topics
   - it is not quiet hours, unless it is breaking
   - it was not already notified inside cooldown_hours, and the per-run/per-day caps allow it
@@ -50,14 +50,28 @@ def eligible(story: Story, cfg: dict) -> bool:
     return bool(set(story.topics) & set(allowed))
 
 
-def clears_bar(story: Story, cfg: dict, watch: dict) -> bool:
-    if story.score >= cfg.get("score", 8.0) and story.independent >= cfg.get("min_outlets", 3):
-        return True
-    return story.watched and story.score >= watch.get("alert_score", 4.0) and story.independent >= watch.get("min_outlets", 2)
+def alert_bar(story: Story, cfg: dict, watch: dict, topic_bars: dict | None = None) -> tuple[float, int]:
+    """The (score, outlets) this story must reach to notify: the lowest bar it qualifies for."""
+    score, outlets = cfg.get("score", 8.0), cfg.get("min_outlets", 3)
+    for tid in story.topics:
+        t_score, t_outlets = (topic_bars or {}).get(tid, (None, None))
+        if t_score is not None and t_score < score:
+            score = t_score
+        if t_outlets is not None and t_outlets < outlets:
+            outlets = t_outlets
+    if story.watched:
+        score, outlets = min(score, watch.get("alert_score", 4.0)), min(outlets, watch.get("min_outlets", 2))
+    return score, outlets
+
+
+def clears_bar(story: Story, cfg: dict, watch: dict, topic_bars: dict | None = None) -> bool:
+    score, outlets = alert_bar(story, cfg, watch, topic_bars)
+    return story.score >= score and story.independent >= outlets
 
 
 def select_alerts(
-    stories: list[Story], state: dict, cfg: dict, settings: ClusterSettings, now: dt.datetime, watch: dict | None = None
+    stories: list[Story], state: dict, cfg: dict, settings: ClusterSettings, now: dt.datetime,
+    watch: dict | None = None, topic_bars: dict | None = None,
 ) -> list[Story]:
     watch = watch or {}
     history = [frozenset(a["tokens"]) for a in recent_alerts(state, cfg, now)]
@@ -73,7 +87,7 @@ def select_alerts(
             continue
         if not cfg.get("enabled", True) or len(picks) >= budget:
             continue
-        if not clears_bar(story, cfg, watch) or not eligible(story, cfg):
+        if not clears_bar(story, cfg, watch, topic_bars) or not eligible(story, cfg):
             continue
         if quiet and not story.breaking:
             continue

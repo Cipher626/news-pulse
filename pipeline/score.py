@@ -46,7 +46,7 @@ def independent_sources(story: Story, wire_similarity: float, owners: dict[str, 
     return len(reps)
 
 
-def score_stories(stories: list[Story], cfg: dict, settings: ClusterSettings, now: dt.datetime) -> None:
+def score_stories(stories: list[Story], cfg: dict, settings: ClusterSettings, now: dt.datetime, topic_weights: dict[str, float] | None = None) -> None:
     sc = cfg.get("scoring", {})
     fresh_minutes = sc.get("fresh_minutes", 90)
     fresh_weight = sc.get("fresh_weight", 0.5)
@@ -59,6 +59,7 @@ def score_stories(stories: list[Story], cfg: dict, settings: ClusterSettings, no
     india_rx = phrase_regex(cfg.get("india", {}).get("keywords", []))
     watch_rx = phrase_regex(cfg.get("watch", {}).get("keywords", []))
     owners = owner_map(cfg)
+    topic_weights = topic_weights or {}
     fresh_cut = now - dt.timedelta(minutes=fresh_minutes)
 
     for story in stories:
@@ -81,9 +82,12 @@ def score_stories(stories: list[Story], cfg: dict, settings: ClusterSettings, no
         score = story.independent + fresh_weight * story.fresh + sensitive
         if not story.india and not matched:
             score *= global_multiplier
+        # Taste: topics you weight above 1 run hotter, below 1 cooler. Breaking news is never muted.
+        if story.topics and not story.breaking:
+            score *= max(topic_weights.get(t, 1.0) for t in story.topics)
         story.score = round(score, 2)
 
         age_hours = max(0.0, (now - story.latest).total_seconds() / 3600)
         story.rank = story.score * 0.5 ** (age_hours / decay_hours)
-        story.unconfirmed = bool(matched) and story.independent < 2
+        story.unconfirmed = story.breaking and story.independent < 2
         story.hot = story.score >= hot_score and story.independent >= 2

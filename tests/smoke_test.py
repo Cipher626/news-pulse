@@ -36,9 +36,9 @@ FAKE = {
     "ndtvnews-latest": [
         ("6.1 magnitude earthquake hits Nepal, tremors felt in Delhi", "https://www.ndtv.com/india-news/quake-nepal-123", 15, None),
     ],
-    "indianexpress.com/section/india": [
-        ("Nepal earthquake: 6.1 magnitude quake strikes, tremors in Delhi", "https://indianexpress.com/article/india/nepal-quake-1/", 30, None),
-        ("Union Cabinet approves Rs 76,000-crore semiconductor scheme", "https://indianexpress.com/article/business/semicon-2/", 40, None),
+    "site:indianexpress.com+when": [  # Google News stand-in: titles end in " - Outlet", links are opaque
+        ("Nepal earthquake: 6.1 magnitude quake strikes, tremors in Delhi - The Indian Express", GN + "ie1", 30, "The Indian Express"),
+        ("Union Cabinet approves Rs 76,000-crore semiconductor scheme - The Indian Express", GN + "ie2", 40, "The Indian Express"),
     ],
     "rssfeedstopstories.cms": [  # both TOI and ET use this file name; fine for a fake
         (QUAKE, "https://timesofindia.indiatimes.com/india/quake/articleshow/1.cms", 22, None),  # wire copy
@@ -138,7 +138,25 @@ def main():
     iphone = find(feed, "iphone")
     assert iphone["india"] is False and iphone["outlets"] == 1
     assert {t["id"] for t in feed["topics"]} >= {"sports", "politics", "gujarat"}
+    cfg0 = run.load_config()
+    assert feed["tabs"] == cfg0["site"]["tabs"], feed["tabs"]
+    assert feed["next_run_at"] and feed["schedule"], "next run should come from the workflow cron"
+    assert all(len(s["keys"]) == 1 + len(s["coverage"]) for s in feed["stories"]), "one key per shown article"
+    assert kohli["needs"]["score"] == cfg0["alerts"]["score"] and kohli["needs"]["eligible"] is False, kohli["needs"]
+    assert isro["needs"] == {"score": 4.0, "outlets": 2, "eligible": True}, isro["needs"]  # watched beats the tech bar
+    assert isro["score"] == 3.0, f"tech weight 2.0 should double a 1.5 base: {isro['score']}"
+    assert not any(s["unconfirmed"] for s in feed["stories"] if not s["breaking"]), "only breaking news is 'single source'"
     print(f"feed ok: {len(feed['stories'])} stories, top = {feed['stories'][0]['title']!r} ({feed['stories'][0]['score']})")
+
+    # A push-triggered run defers its pings to the next scheduled run
+    import contextlib, io
+    os.environ["SKIP_ALERTS"] = "true"
+    buffer = io.StringIO()
+    with contextlib.redirect_stdout(buffer):
+        run.main(["--dry-run"])
+    del os.environ["SKIP_ALERTS"]
+    assert "deferred to the next scheduled run" in buffer.getvalue(), buffer.getvalue()[-400:]
+    print("push-run deferral ok")
 
     # Alerts: memory, topic eligibility
     cfg = run.load_config()
@@ -148,7 +166,8 @@ def main():
         a.published = a.published or NOW
     groups = cluster(arts, settings)
     TopicModel(cfg).assign(groups)
-    score_stories(groups, cfg, settings, NOW)
+    model = TopicModel(cfg)
+    score_stories(groups, cfg, settings, NOW, model.weights())
     loud = {**cfg["alerts"], "quiet_start": "00:00", "quiet_end": "00:00"}
     state = {}
     first = select_alerts(groups, state, loud, settings, NOW, cfg["watch"])

@@ -51,6 +51,8 @@ jobs:
           NTFY_SERVER: ${{ vars.NTFY_SERVER }}
           SITE_URL: ${{ vars.SITE_URL }}
           TEST_ALERT: ${{ inputs.test_alert }}
+          # A run caused by your own push only rebuilds the page; pings wait for the next scheduled run.
+          SKIP_ALERTS: ${{ github.event_name == 'push' }}
         run: python -m pipeline.run
 
       - name: Save state

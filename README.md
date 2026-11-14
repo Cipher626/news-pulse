@@ -67,6 +67,17 @@ Open `https://YOUR_USERNAME.github.io/news-pulse/`.
 
 Replace every file with this version **except `data/state.json`**, then commit and push. `config.toml` is new: if you had edited the old one, copy your changes across by hand. The page updates itself on phones once the new service worker loads (close and reopen the app if it doesn't).
 
+## What's new in v3
+
+- **Taste weights.** Each `[[topics]]` block has a `weight`; it multiplies the score of non-breaking stories (tech 2.0, entertainment 0.4 by default). For you, Top and notifications all lean the same way.
+- **Tabs come from config.** `[site] tabs` lists them in order: `foryou`, `latest`, `top`, `india`, `world`, or any topic id, so a topic can be a tab.
+- **Seen stories sink.** A story that has been on your screen for about a second counts as seen on that device; ranked tabs show unseen stories first, then a "Seen earlier" divider. The dot marks unseen stories.
+- **The refresh button reloads the page's data only.** It cannot run the pipeline. If nothing new has been built it says so and gives the next run time, which is now read from the workflow's cron line rather than guessed.
+- **No surprise pings after a push.** A run started by your own commit rebuilds the page and defers notifications to the next scheduled run.
+- **Per-topic alert bars.** A topic can set `alert_score` and `alert_min_outlets` lower than the global bar (tech and science do).
+- **"No ping" reasons.** Open a story's details to see why it did or didn't notify.
+- **Outlet ignore list.** `[fetch] ignore_outlets` drops junk that Google News searches pull in.
+
 ## Reading the page
 
 - **For you** shows the topics you pick, plus breaking news and anything on your watch list. **Top** is everything ranked by spread and freshness. **India** and **World** are everything in that region, newest first.
@@ -85,6 +96,10 @@ Replace every file with this version **except `data/state.json`**, then commit a
 |---|---|
 | Add or remove a source | `config.toml` → `[[feeds]]` |
 | Add a topic to the picker | `config.toml` → new `[[topics]]` block (id, label, paths, keywords) |
+| Lean the feed toward or away from a topic | `config.toml` → that topic's `weight` |
+| Change the tabs | `config.toml` → `[site]` `tabs` |
+| Make a topic notify more easily | `config.toml` → that topic's `alert_score`, `alert_min_outlets` |
+| Drop a junk outlet | `config.toml` → `[fetch]` `ignore_outlets` |
 | Choose which topics notify | `config.toml` → `[alerts]` `topics` |
 | Follow specific names, companies, exams | `config.toml` → `[watch]` `keywords` |
 | Fewer or more notifications | `config.toml` → `[alerts]` `score`, `min_outlets`, `max_per_day` |

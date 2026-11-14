@@ -2,13 +2,10 @@
 
 const FEED_URL = "feed.json";
 const AUTO_REFRESH_MS = 5 * 60 * 1000;
+const SEEN_TTL_MS = 48 * 60 * 60 * 1000;
+const SEEN_AFTER_MS = 1200; // a story counts as seen after it has been on screen this long
 const OTHER = "_other"; // pseudo-topic: stories the labeller could not place
-const TABS = [
-  { id: "foryou", label: "For you" },
-  { id: "top", label: "Top" },
-  { id: "india", label: "India" },
-  { id: "world", label: "World" },
-];
+const FIXED_TABS = { foryou: "For you", latest: "Latest", top: "Top", india: "India", world: "World" };
 
 const store = {
   get(key) {
@@ -41,9 +38,66 @@ const els = {
 let feed = null;
 let loading = false;
 let lastLoadedAt = 0;
-let activeTab = TABS.some((t) => t.id === store.get("pulse.tab")) ? store.get("pulse.tab") : "foryou";
-// Stories first seen after this moment get a "new" dot. 0 on the very first visit: nothing is new yet.
-let lastVisit = Number(store.get("pulse.lastVisit")) || 0;
+let tabs = [];
+let activeTab = store.get("pulse.tab") || "foryou";
+let noticeTimer = 0;
+
+/* ---------- Seen tracking (per device) ----------
+   Each story carries keys, one per article. A story is unseen until one of its keys was on screen
+   for SEEN_AFTER_MS. Ordering and dots are judged against a snapshot taken when you arrive or tap
+   refresh, so the list doesn't shuffle under your thumb while you read. */
+
+let seen = loadSeen();
+let seenSnapshot = new Set(Object.keys(seen));
+const seenTimers = new WeakMap();
+
+function loadSeen() {
+  const raw = store.getJSON("pulse.seen") || {};
+  const cutoff = Date.now() - SEEN_TTL_MS;
+  const kept = {};
+  for (const [key, at] of Object.entries(raw)) if (at > cutoff) kept[key] = at;
+  return kept;
+}
+
+function markSeen(keys) {
+  const now = Date.now();
+  let changed = false;
+  for (const key of keys) {
+    if (!seen[key]) {
+      seen[key] = now;
+      changed = true;
+    }
+  }
+  if (changed) store.set("pulse.seen", JSON.stringify(seen));
+}
+
+function refreshSnapshot() {
+  seenSnapshot = new Set(Object.keys(seen));
+}
+
+function isUnseen(story) {
+  const keys = story.keys?.length ? story.keys : [story.id];
+  return !keys.some((key) => seenSnapshot.has(key));
+}
+
+const observer = "IntersectionObserver" in window
+  ? new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          const node = entry.target;
+          if (entry.isIntersecting && entry.intersectionRatio >= 0.6) {
+            if (!seenTimers.has(node)) {
+              seenTimers.set(node, setTimeout(() => markSeen(JSON.parse(node.dataset.keys)), SEEN_AFTER_MS));
+            }
+          } else if (seenTimers.has(node)) {
+            clearTimeout(seenTimers.get(node));
+            seenTimers.delete(node);
+          }
+        }
+      },
+      { threshold: [0, 0.6, 1] },
+    )
+  : null;
 
 /* ---------- Preferences (per device) ---------- */
 
@@ -125,7 +179,12 @@ function topicLabel(id) {
   return feed?.topics?.find((t) => t.id === id)?.label ?? id;
 }
 
-/* ---------- Filtering ---------- */
+function nextRunMs() {
+  if (feed.next_run_at) return Date.parse(feed.next_run_at);
+  return Date.parse(feed.checked_at || feed.generated_at) + (feed.interval_minutes || 30) * 60000;
+}
+
+/* ---------- Filtering and ordering ---------- */
 
 function languageAllowed(story) {
   const langs = story.langs?.length ? story.langs : [story.lang || "en"];
@@ -138,13 +197,23 @@ function matchesTopics(story) {
   return story.topics.some((t) => selectedTopics.has(t));
 }
 
+const byRank = (a, b) => b.rank - a.rank;
+const byTime = (a, b) => Date.parse(b.latest) - Date.parse(a.latest);
+
+// Ranked tabs: stories you haven't seen on this device first, then the rest. Each part keeps rank order.
+function unseenFirst(list) {
+  const fresh = list.filter(isUnseen);
+  const rest = list.filter((s) => !isUnseen(s));
+  return { fresh, rest };
+}
+
 function storiesFor(tab) {
   const all = (feed?.stories ?? []).filter(languageAllowed);
-  const byRank = (a, b) => b.rank - a.rank;
-  const byTime = (a, b) => Date.parse(b.latest) - Date.parse(a.latest);
-  if (tab === "foryou") return all.filter(matchesTopics).sort(byRank).slice(0, 80);
-  if (tab === "top") return [...all].sort(byRank).slice(0, 60);
-  return all.filter((s) => s.section === tab).sort(byTime);
+  if (tab === "latest") return { fresh: [...all].sort(byTime), rest: [] };
+  if (tab === "india" || tab === "world") return { fresh: all.filter((s) => s.section === tab).sort(byTime), rest: [] };
+  if (tab === "top") return unseenFirst([...all].sort(byRank).slice(0, 80));
+  if (tab === "foryou") return unseenFirst(all.filter(matchesTopics).sort(byRank).slice(0, 100));
+  return unseenFirst(all.filter((s) => s.topics?.includes(tab)).sort(byRank)); // a topic tab
 }
 
 /* ---------- Rendering ---------- */
@@ -166,9 +235,20 @@ function linkOrText(cls, url, text, lang) {
     : el("span", attrs, text);
 }
 
-function storyItem(story) {
-  const isNew = lastVisit > 0 && Date.parse(story.first_seen) > lastVisit;
+// Why this story did or didn't reach your phone, in one line.
+function alertReason(story) {
+  if (story.alerted) return "Notified to your phone.";
+  const needs = story.needs || { score: feed.thresholds.alert, outlets: feed.thresholds.min_outlets ?? 3, eligible: true };
+  const parts = [
+    `Score ${story.score} of ${needs.score} needed`,
+    `${story.independent} independent outlet${story.independent === 1 ? "" : "s"} of ${needs.outlets} needed`,
+  ];
+  if (!needs.eligible) parts.push("topic not on the alert list");
+  return `No ping: ${parts.join(", ")}.`;
+}
 
+function storyItem(story) {
+  const unseen = isUnseen(story);
   const tags = [
     ...story.categories.map((label) => el("span", { class: "tag tag-sensitive" }, label)),
     story.unconfirmed && el("span", { class: "tag tag-warn" }, "Single source"),
@@ -188,31 +268,44 @@ function storyItem(story) {
   const body = el("div", { class: "body" }, linkOrText("headline", story.link, story.title, story.lang), meta);
   if (tags.length) body.append(el("p", { class: "tags" }, tags));
 
-  if (story.coverage.length) {
-    const others = story.coverage.length;
-    body.append(
+  const others = story.coverage.length;
+  const details = el(
+    "details",
+    { class: "more" },
+    el("summary", {}, others ? `Also covered by ${others} other outlet${others === 1 ? "" : "s"}` : "Only one outlet so far"),
+    el("p", { class: "why" }, alertReason(story)),
+  );
+  if (others) {
+    details.append(
       el(
-        "details",
-        { class: "more" },
-        el("summary", {}, `Also covered by ${others} other outlet${others === 1 ? "" : "s"}`),
-        el(
-          "ul",
-          { class: "coverage" },
-          story.coverage.map((c) =>
-            el("li", {}, el("span", { class: "outlet" }, c.outlet), linkOrText("", c.link, c.title, c.lang)),
-          ),
+        "ul",
+        { class: "coverage" },
+        story.coverage.map((c) =>
+          el("li", {}, el("span", { class: "outlet" }, c.outlet), linkOrText("", c.link, c.title, c.lang)),
         ),
       ),
     );
   }
+  body.append(details);
 
-  const classes = ["story", story.hot && "is-hot", isNew && "is-new"].filter(Boolean).join(" ");
-  return el("li", { class: classes }, meter(story), body);
+  const classes = ["story", story.hot && "is-hot", unseen && "is-new"].filter(Boolean).join(" ");
+  const item = el("li", { class: classes, "data-keys": JSON.stringify(story.keys?.length ? story.keys : [story.id]) }, meter(story), body);
+  if (observer) observer.observe(item);
+  return item;
+}
+
+function buildTabs() {
+  const wanted = feed.tabs?.length ? feed.tabs : ["foryou", "top", "india", "world"];
+  tabs = wanted
+    .filter((id) => FIXED_TABS[id] || feed.topics?.some((t) => t.id === id))
+    .map((id) => ({ id, label: FIXED_TABS[id] ?? topicLabel(id) }));
+  if (!tabs.length) tabs = [{ id: "latest", label: "Latest" }];
+  if (!tabs.some((t) => t.id === activeTab)) activeTab = tabs[0].id;
 }
 
 function renderTabs() {
   els.tabs.replaceChildren(
-    ...TABS.map((tab) => {
+    ...tabs.map((tab) => {
       const button = el(
         "button",
         {
@@ -229,6 +322,7 @@ function renderTabs() {
         if (activeTab === tab.id) return;
         activeTab = tab.id;
         store.set("pulse.tab", tab.id);
+        refreshSnapshot();
         renderTabs();
         renderStories();
         window.scrollTo({ top: 0 });
@@ -241,25 +335,31 @@ function renderTabs() {
 
 function renderStories() {
   if (!feed) return;
-  const list = storiesFor(activeTab);
-  els.stories.replaceChildren(...list.map(storyItem));
-  els.empty.hidden = list.length > 0;
-  if (list.length) return;
+  if (observer) observer.disconnect();
+  const { fresh, rest } = storiesFor(activeTab);
+  const nodes = fresh.map(storyItem);
+  if (rest.length) {
+    nodes.push(el("li", { class: "divider", role: "presentation" }, fresh.length ? "Seen earlier" : "Nothing new; seen earlier"));
+    nodes.push(...rest.map(storyItem));
+  }
+  els.stories.replaceChildren(...nodes);
+  els.empty.hidden = nodes.length > 0;
+  if (nodes.length) return;
   if (activeTab === "foryou") {
     const pick = el("button", { type: "button", class: "link-button" }, "Choose topics");
     pick.addEventListener("click", openSheet);
     els.empty.replaceChildren("Nothing in your topics right now. ", pick);
   } else {
-    const next = Date.parse(feed.generated_at) + feed.interval_minutes * 60000;
-    els.empty.textContent = `Nothing here in the last 24 hours. The next update runs around ${clock(next)}.`;
+    els.empty.textContent = `Nothing here in the last 24 hours. The next update runs around ${clock(nextRunMs())}.`;
   }
 }
 
 function renderHeader() {
   if (!feed) return;
-  const ageMin = (Date.now() - Date.parse(feed.generated_at)) / 60000;
+  const ageMin = (Date.now() - Date.parse(feed.checked_at || feed.generated_at)) / 60000;
+  const interval = feed.interval_minutes || 30;
   els.updated.textContent = `Updated ${timeAgo(feed.generated_at)}`;
-  els.dot.className = `dot ${ageMin <= feed.interval_minutes * 1.5 ? "is-fresh" : ageMin <= 120 ? "is-stale" : "is-old"}`;
+  els.dot.className = `dot ${ageMin <= interval * 1.5 ? "is-fresh" : ageMin <= interval * 4 ? "is-stale" : "is-old"}`;
   for (const node of els.stories.querySelectorAll("time[datetime]")) {
     node.textContent = timeAgo(node.getAttribute("datetime"));
   }
@@ -269,11 +369,11 @@ function renderFoot() {
   if (!feed) return;
   const failing = feed.sources.filter((s) => !s.ok);
   const okCount = feed.sources.length - failing.length;
-  const next = Date.parse(feed.checked_at || feed.generated_at) + feed.interval_minutes * 60000;
   const summary = `${okCount} of ${feed.sources.length} sources responding`;
   const describe = (s) => `${s.name}: ${s.error}${s.failing_since ? `, failing since ${shortDate(s.failing_since)}` : ""}`;
+  const cadence = feed.interval_minutes ? ` Runs every ${feed.interval_minutes} minutes.` : "";
   els.foot.replaceChildren(
-    el("p", {}, `Updated at ${clock(feed.generated_at)}. Next update around ${clock(next)}.`),
+    el("p", {}, `Updated at ${clock(feed.generated_at)}. Next update around ${clock(nextRunMs())}.${cadence}`),
     failing.length
       ? el("details", {}, el("summary", {}, summary), el("ul", {}, failing.map((s) => el("li", {}, describe(s)))))
       : el("p", {}, summary),
@@ -281,6 +381,8 @@ function renderFoot() {
 }
 
 function renderAll() {
+  buildTabs();
+  renderTabs();
   renderStories();
   renderHeader();
   renderFoot();
@@ -289,9 +391,11 @@ function renderAll() {
   }
 }
 
-function showNotice(text) {
+function showNotice(text, ms = 0) {
+  clearTimeout(noticeTimer);
   els.notice.hidden = !text;
   els.notice.textContent = text || "";
+  if (text && ms) noticeTimer = setTimeout(() => showNotice(""), ms);
 }
 
 /* ---------- Topic picker ---------- */
@@ -349,11 +453,12 @@ els.sheet.addEventListener("click", (event) => {
 
 /* ---------- Loading ---------- */
 
-async function load() {
+async function load(manual = false) {
   if (loading) return;
   loading = true;
   els.refresh.classList.add("is-loading");
   els.refresh.disabled = true;
+  const before = feed?.generated_at;
   try {
     const response = await fetch(`${FEED_URL}?t=${Date.now()}`, { cache: "no-store" });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -361,8 +466,13 @@ async function load() {
     feed = await response.json();
     lastLoadedAt = Date.now();
     if (firstLoad) loadPreferences();
+    if (manual) refreshSnapshot();
     showNotice("");
     renderAll();
+    if (manual && before && before === feed.generated_at && !feed.stale) {
+      // The button reloads the page's data; it cannot run the pipeline. Say when the next build is due.
+      showNotice(`No new build since ${clock(feed.generated_at)}. The next run is around ${clock(nextRunMs())}.`, 6000);
+    }
   } catch (error) {
     showNotice(
       feed
@@ -376,14 +486,12 @@ async function load() {
   }
 }
 
-els.refresh.addEventListener("click", load);
+els.refresh.addEventListener("click", () => load(true));
 
 document.addEventListener("visibilitychange", () => {
-  if (document.visibilityState === "hidden") {
-    store.set("pulse.lastVisit", String(Date.now()));
-  } else {
-    lastVisit = Number(store.get("pulse.lastVisit")) || lastVisit;
-    if (Date.now() - lastLoadedAt > 60 * 1000) load();
+  if (document.visibilityState === "visible" && Date.now() - lastLoadedAt > 60 * 1000) {
+    refreshSnapshot();
+    load();
   }
 });
 
@@ -392,11 +500,8 @@ setInterval(() => {
 }, AUTO_REFRESH_MS);
 setInterval(renderHeader, 60 * 1000);
 
-if (!lastVisit) store.set("pulse.lastVisit", String(Date.now()));
-
 if ("serviceWorker" in navigator) {
   navigator.serviceWorker.register("sw.js").catch(() => { /* offline support is optional */ });
 }
 
-renderTabs();
 load();

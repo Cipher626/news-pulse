@@ -8,10 +8,13 @@ interval_minutes = 30     # informational, shown on the page; the real schedule 
 max_age_hours = 24        # stories older than this drop off
 max_stories = 200         # cap on stories written to the page
 hot_score = 6.0           # stories at or above this get a warm meter on the page
+# Tabs in the app, in order. Allowed: foryou, latest, top, india, world, or any topic id below.
+tabs = ["foryou", "tech", "latest", "world"]
 
 [fetch]
 min_sources_ok = 8        # fewer sources than this answering = outage: keep the last good page, send no alerts
 failing_after_runs = 3    # a source failing this many runs in a row shows "failing since" in the footer
+ignore_outlets = ["Hotelier Buzz"]   # outlets to drop entirely (junk that Google News searches pull in)
 skip_url_patterns = [     # items whose link contains any of these are dropped (videos, galleries, web stories)
   "/video/", "/videos/", "/photo/", "/photos/", "/photo-gallery/", "/photogallery/", "/gallery/",
   "/web-stories/", "/webstories/", "/visualstories/", "/web-story/", "/short-videos/",
@@ -21,8 +24,8 @@ skip_url_patterns = [     # items whose link contains any of these are dropped (
 enabled = true
 score = 8.0               # notify at or above this score...
 min_outlets = 3           # ...and only if at least this many independent newsrooms carry it
-max_per_run = 3
-max_per_day = 15
+max_per_run = 2            # with runs every 30 minutes, 2 per run avoids bursts
+max_per_day = 12
 cooldown_hours = 24       # the same story will not notify twice inside this window
 quiet_start = "23:30"     # during quiet hours only breaking news notifies
 quiet_end = "07:00"
@@ -89,6 +92,9 @@ keywords = [
 
 # ---------------------------------------------------------------------------------------------
 # Topics. These are the choices in the app's topic picker. Each needs a unique id.
+#   weight   - taste. Multiplies the score of non-breaking stories: 2.0 = twice as hot, 0.5 = half.
+#              This is what makes For you, Top and alerts lean toward what you care about.
+#   alert_score / alert_min_outlets - optional lower notification bar for this topic
 #   default  - selected in the app until you change it there
 #   paths    - URL segments or RSS categories that mean this topic (/sports/, /cricket/, ...)
 #   keywords - headline words; English, Hindi or Gujarati
@@ -99,6 +105,7 @@ keywords = [
 id = "politics"
 label = "Politics"
 default = true
+weight = 0.8
 paths = ["politics", "elections", "election", "assembly-elections", "lok-sabha-elections", "rajniti", "chunav"]
 keywords = [
   "bjp", "congress", "aap", "lok sabha", "rajya sabha", "parliament", "assembly polls", "election commission",
@@ -110,6 +117,7 @@ keywords = [
 id = "business"
 label = "Business & markets"
 default = true
+weight = 1.0
 paths = ["business", "markets", "market", "economy", "money", "personal-finance", "companies", "industry",
          "stock-market", "mutual-funds", "banking", "budget", "vyapar", "karobar"]
 keywords = [
@@ -122,6 +130,9 @@ keywords = [
 id = "tech"
 label = "Technology"
 default = true
+weight = 2.0
+alert_score = 6.0
+alert_min_outlets = 2
 paths = ["technology", "tech", "gadgets", "mobile", "internet", "tech-news", "sci-tech", "artificial-intelligence"]
 keywords = [
   "artificial intelligence", "chatgpt", "openai", "anthropic", "gemini", "nvidia", "google", "apple",
@@ -133,6 +144,9 @@ keywords = [
 id = "science"
 label = "Science & space"
 default = true
+weight = 1.5
+alert_score = 6.0
+alert_min_outlets = 2
 paths = ["science", "space", "isro"]
 keywords = [
   "isro", "nasa", "spacex", "chandrayaan", "gaganyaan", "aditya-l1", "satellite", "rocket launch",
@@ -142,7 +156,8 @@ keywords = [
 [[topics]]
 id = "sports"
 label = "Sports"
-default = true
+default = false
+weight = 0.7
 paths = ["sports", "sport", "cricket", "football", "tennis", "hockey", "ipl", "olympics", "khel",
          "badminton", "chess", "kabaddi", "f1", "athletics", "wrestling"]
 keywords = [
@@ -155,6 +170,7 @@ keywords = [
 id = "entertainment"
 label = "Entertainment"
 default = false
+weight = 0.4
 paths = ["entertainment", "bollywood", "movies", "movie-review", "television", "tv", "music",
          "celebrities", "web-series", "ott", "manoranjan", "film", "hollywood"]
 keywords = ["bollywood", "box office", "trailer", "netflix", "ott release", "web series", "बॉलीवुड", "फिल्म", "ફિલ્મ"]
@@ -162,7 +178,8 @@ keywords = ["bollywood", "box office", "trailer", "netflix", "ott release", "web
 [[topics]]
 id = "health"
 label = "Health"
-default = true
+default = false
+weight = 0.7
 paths = ["health", "fitness", "health-news", "wellness", "swasthya"]
 keywords = [
   "hospital", "doctors", "vaccine", "disease", "virus", "outbreak", "aiims", "cancer", "dengue",
@@ -173,6 +190,7 @@ keywords = [
 id = "education"
 label = "Education & exams"
 default = true
+weight = 1.2
 paths = ["education", "education-today", "exams", "results", "jobs", "career", "careers", "admission", "news-education"]
 keywords = [
   "jee", "jee main", "jee advanced", "neet", "cbse", "ugc", "upsc", "gate exam", "cuet", "board exam",
@@ -182,7 +200,8 @@ keywords = [
 [[topics]]
 id = "law"
 label = "Courts & crime"
-default = true
+default = false
+weight = 0.6
 paths = ["crime", "law", "courts", "legal-news", "crime-news", "apradh"]
 keywords = [
   "supreme court", "high court", "bail", "cbi", "enforcement directorate", "police", "arrested", "murder",
@@ -194,6 +213,7 @@ keywords = [
 id = "defence"
 label = "Defence & security"
 default = true
+weight = 1.0
 paths = ["defence", "defense", "security", "army", "military"]
 keywords = [
   "indian army", "army chief", "indian navy", "iaf", "air force", "drdo", "border", "lac", "loc",
@@ -204,6 +224,7 @@ keywords = [
 id = "environment"
 label = "Weather & environment"
 default = true
+weight = 0.9
 paths = ["weather", "environment", "climate", "mausam", "monsoon", "climate-change"]
 keywords = [
   "imd", "monsoon", "heatwave", "rainfall", "heavy rain", "cyclone", "air quality", "aqi", "pollution",
@@ -214,6 +235,7 @@ keywords = [
 id = "gujarat"
 label = "Gujarat"
 default = true
+weight = 1.2
 paths = ["gujarat", "ahmedabad", "surat", "vadodara", "rajkot", "gandhinagar", "bhavnagar", "jamnagar",
          "kutch", "saurashtra", "junagadh", "anand", "mehsana"]
 keywords = [
@@ -278,8 +300,8 @@ label = "Politics"
 weight = 2
 keywords = [
   "resigns", "resignation", "no-confidence", "impeachment", "impeached", "president's rule",
-  "election results", "exit poll", "arrested", "dissolved",
-  "इस्तीफा", "गिरफ्तार", "चुनाव नतीजे", "રાજીનામું", "ધરપકડ",
+  "election results", "exit poll", "dissolved",
+  "इस्तीफा", "चुनाव नतीजे", "રાજીનામું",
 ]
 
 [[sensitive]]
@@ -307,9 +329,10 @@ url = "https://www.thehindu.com/news/national/feeder/default.rss"
 section = "india"
 
 [[feeds]]
-name = "Indian Express"       # checked
-url = "https://indianexpress.com/section/india/feed/"
+name = "Indian Express"       # its own feed answers 403 to GitHub's servers; Google News stand-in
+url = "https://news.google.com/rss/search?q=site:indianexpress.com+when:1d&hl=en-IN&gl=IN&ceid=IN:en"
 section = "india"
+aggregator = true
 
 [[feeds]]
 name = "Hindustan Times"      # checked
@@ -343,9 +366,10 @@ section = "india"
 aggregator = true
 
 [[feeds]]
-name = "News18"               # checked
-url = "https://www.news18.com/commonfeeds/v1/eng/rss/india.xml"
+name = "News18"               # its own feed answers 403 to GitHub's servers; Google News stand-in
+url = "https://news.google.com/rss/search?q=site:news18.com+when:1d&hl=en-IN&gl=IN&ceid=IN:en"
 section = "india"
+aggregator = true
 
 [[feeds]]
 name = "PIB"
@@ -432,9 +456,93 @@ topic = "tech"
 
 [[feeds]]
 name = "Indian Express"
-url = "https://indianexpress.com/section/education/feed/"
+url = "https://news.google.com/rss/search?q=site:indianexpress.com/article/education+when:1d&hl=en-IN&gl=IN&ceid=IN:en"
 section = "india"
 topic = "education"
+aggregator = true
+
+# --- Technology and science (your preferred topics; weighted 2.0 and 1.5 above)
+[[feeds]]
+name = "TechCrunch"
+url = "https://techcrunch.com/feed/"
+section = "world"
+topic = "tech"
+
+[[feeds]]
+name = "The Verge"
+url = "https://www.theverge.com/rss/index.xml"
+section = "world"
+topic = "tech"
+
+[[feeds]]
+name = "Ars Technica"
+url = "https://feeds.arstechnica.com/arstechnica/index"
+section = "world"
+topic = "tech"
+
+[[feeds]]
+name = "MIT Technology Review"
+url = "https://www.technologyreview.com/feed/"
+section = "world"
+topic = "tech"
+
+[[feeds]]
+name = "IEEE Spectrum"
+url = "https://spectrum.ieee.org/feeds/feed.rss"
+section = "world"
+topic = "tech"
+
+[[feeds]]
+name = "Hackaday"
+url = "https://hackaday.com/blog/feed/"
+section = "world"
+topic = "tech"
+
+[[feeds]]
+name = "Inc42"
+url = "https://inc42.com/feed/"
+section = "india"
+topic = "tech"
+
+[[feeds]]
+name = "Analytics India Magazine"
+url = "https://analyticsindiamag.com/feed/"
+section = "india"
+topic = "tech"
+
+[[feeds]]
+name = "Gadgets360"
+url = "https://www.gadgets360.com/rss/news"
+section = "india"
+topic = "tech"
+
+[[feeds]]
+name = "Economic Times"
+url = "https://news.google.com/rss/search?q=site:economictimes.indiatimes.com/tech+when:1d&hl=en-IN&gl=IN&ceid=IN:en"
+section = "india"
+topic = "tech"
+aggregator = true
+
+[[feeds]]
+name = "Google News AI"
+url = "https://news.google.com/rss/search?q=%22artificial+intelligence%22+OR+OpenAI+OR+Nvidia+when:1d&hl=en-IN&gl=IN&ceid=IN:en"
+section = "world"
+topic = "tech"
+aggregator = true
+
+[[feeds]]
+name = "Google News Robotics"
+url = "https://news.google.com/rss/search?q=robotics+OR+semiconductor+when:1d&hl=en-IN&gl=IN&ceid=IN:en"
+section = "world"
+topic = "tech"
+aggregator = true
+
+[[feeds]]
+name = "Google News ISRO"
+url = "https://news.google.com/rss/search?q=ISRO+OR+Chandrayaan+OR+Gaganyaan+when:1d&hl=en-IN&gl=IN&ceid=IN:en"
+section = "india"
+topic = "science"
+aggregator = true
 
 [[feeds]]
 name = "Google News Sports"

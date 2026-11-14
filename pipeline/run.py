@@ -19,10 +19,11 @@ from pathlib import Path
 
 import requests
 
-from .alerts import record_alert, recent_alerts, select_alerts
+from .alerts import alert_bar, eligible, record_alert, recent_alerts, select_alerts
 from .cluster import ClusterSettings, Story, cluster
 from .fetch import FeedStatus, fetch_all
 from .notify import send_story, send_test
+from .schedule import next_runs, read_cron
 from .score import score_stories
 from .topics import TopicModel
 from .util import from_iso, now_utc, outlet_key, to_iso
@@ -32,6 +33,7 @@ CONFIG_PATH = ROOT / "config.toml"
 STATE_PATH = ROOT / "data" / "state.json"
 WEB_DIR = ROOT / "web"
 SITE_DIR = ROOT / "site"
+WORKFLOW_PATH = ROOT / ".github" / "workflows" / "news.yml"
 
 LANGUAGES = [{"id": "en", "label": "English"}, {"id": "hi", "label": "हिन्दी"}, {"id": "gu", "label": "ગુજરાતી"}]
 
@@ -83,7 +85,20 @@ def update_health(state: dict, statuses: list[FeedStatus], now: dt.datetime, fai
     state["health"] = current  # feeds removed from config drop out
 
 
-def story_json(story: Story) -> dict:
+def _key(link: str) -> str:
+    return hashlib.sha1(link.encode()).hexdigest()[:12]
+
+
+def schedule_info(now: dt.datetime, fallback_minutes: int) -> dict:
+    """When the next run is due, read from the workflow's cron so the page never guesses."""
+    cron = read_cron(WORKFLOW_PATH)
+    runs = next_runs(cron, now, 2) if cron else []
+    if len(runs) == 2:
+        return {"schedule": cron, "next_run_at": to_iso(runs[0]), "interval_minutes": int((runs[1] - runs[0]).total_seconds() // 60)}
+    return {"schedule": cron, "next_run_at": None, "interval_minutes": fallback_minutes}
+
+
+def story_json(story: Story, alert_cfg: dict, watch: dict, topic_bars: dict) -> dict:
     lead = story.lead
     coverage, seen = [], {outlet_key(lead.outlet)}
     for art in sorted(story.articles, key=lambda a: (a.priority, a.published)):
@@ -92,8 +107,12 @@ def story_json(story: Story) -> dict:
             continue
         seen.add(key)
         coverage.append({"title": art.title, "link": art.link, "outlet": art.outlet, "lang": art.lang, "published": to_iso(art.published)})
+    bar_score, bar_outlets = alert_bar(story, alert_cfg, watch, topic_bars)
     return {
-        "id": hashlib.sha1(lead.link.encode()).hexdigest()[:12],
+        "id": _key(lead.link),
+        # One key per article: the page remembers which it has shown you, whatever the story is called later
+        "keys": [_key(lead.link)] + [_key(c["link"]) for c in coverage[:12]],
+        "needs": {"score": bar_score, "outlets": bar_outlets, "eligible": eligible(story, alert_cfg)},
         "title": lead.title,
         "link": lead.link,
         "outlet": lead.outlet,
@@ -160,12 +179,17 @@ def main(argv: list[str] | None = None) -> int:
     alert_cfg = cfg.get("alerts", {})
     settings = ClusterSettings.from_config(cfg.get("cluster", {}))
     topics = TopicModel(cfg)
+    topic_bars = topics.alert_bars()
+    watch_cfg = cfg.get("watch", {})
     url = site_url()
 
     # 1. Fetch
     feeds = cfg.get("feeds", [])
     skip = tuple(p.lower() for p in fetch_cfg.get("skip_url_patterns", []))
     articles, statuses = fetch_all(feeds, now, skip=skip)
+    ignored = {outlet_key(name) for name in fetch_cfg.get("ignore_outlets", [])}
+    if ignored:
+        articles = [a for a in articles if outlet_key(a.outlet) not in ignored]
     ok = sum(s.ok for s in statuses)
     update_health(state, statuses, now, fetch_cfg.get("failing_after_runs", 3))
     print(f"Fetched {len(articles)} items from {ok}/{len(statuses)} feeds")
@@ -176,8 +200,10 @@ def main(argv: list[str] | None = None) -> int:
 
     meta = {
         "title": site_cfg.get("title", "Pulse"),
-        "interval_minutes": site_cfg.get("interval_minutes", 30),
-        "thresholds": {"hot": site_cfg.get("hot_score", 6.0), "alert": alert_cfg.get("score", 8.0)},
+        **schedule_info(now, site_cfg.get("interval_minutes", 30)),
+        "thresholds": {"hot": site_cfg.get("hot_score", 6.0), "alert": alert_cfg.get("score", 8.0), "min_outlets": alert_cfg.get("min_outlets", 3)},
+        "tabs": site_cfg.get("tabs", ["foryou", "top", "india", "world"]),
+        "alert_topics": alert_cfg.get("topics"),
         "topics": topics.as_json(),
         "languages": LANGUAGES,
     }
@@ -214,11 +240,11 @@ def main(argv: list[str] | None = None) -> int:
     # 3. Cluster, label topics, score
     stories = cluster(articles, settings)
     topics.assign(stories)
-    score_stories(stories, cfg, settings, now)
+    score_stories(stories, cfg, settings, now, topics.weights())
     print(f"Grouped into {len(stories)} stories, {sum(s.hot for s in stories)} hot")
 
     # 4. Alerts
-    picks = select_alerts(stories, state, alert_cfg, settings, now, cfg.get("watch", {}))
+    picks = select_alerts(stories, state, alert_cfg, settings, now, watch_cfg, topic_bars)
     topic = os.environ.get("NTFY_TOPIC", "").strip()
     server = os.environ.get("NTFY_SERVER", "").strip() or "https://ntfy.sh"
 
@@ -240,6 +266,12 @@ def main(argv: list[str] | None = None) -> int:
         state["alert_day"]["count"] = 0
         state["initialized"] = True
         print(f"First run: marked {len(picks)} existing big stories as seen without notifying")
+        picks = []
+
+    if os.environ.get("SKIP_ALERTS", "").strip().lower() == "true" and picks:
+        # A run started by your own push rebuilds the page but leaves notifying to the next scheduled run,
+        # so editing config never causes a surprise burst of pings.
+        print(f"Push-triggered run: {len(picks)} alert(s) deferred to the next scheduled run")
         picks = []
 
     for story in picks:
@@ -264,7 +296,7 @@ def main(argv: list[str] | None = None) -> int:
         "generated_at": to_iso(now),
         "stale": False,
         "sources": sources_json(statuses),
-        "stories": [story_json(s) for s in stories[: site_cfg.get("max_stories", 200)]],
+        "stories": [story_json(s, alert_cfg, watch_cfg, topic_bars) for s in stories[: site_cfg.get("max_stories", 200)]],
     }
     out = write_site(payload)
     print(f"Wrote {out.relative_to(ROOT)}")
